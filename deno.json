@@ -1,0 +1,16 @@
+{
+  "name": "genai-oidc-idp",
+  "version": "0.1.0",
+  "tasks": {
+    "dev": "deno run --allow-net --allow-env --allow-read --watch main.ts",
+    "start": "deno run --allow-net --allow-env --allow-read main.ts",
+    "client": "deno run --allow-net --allow-env --allow-read test-client.ts"
+  },
+  "imports": {
+    "@oak/oak": "jsr:@oak/oak@^17",
+    "@std/crypto": "jsr:@std/crypto@^1",
+    "@std/encoding": "jsr:@std/encoding@^1",
+    "@std/dotenv": "jsr:@std/dotenv@^0.225",
+    "openai": "npm:openai@^4"
+  }
+}
