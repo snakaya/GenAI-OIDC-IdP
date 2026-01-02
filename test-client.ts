@@ -122,18 +122,12 @@ router.get("/", async (ctx: Context) => {
   
   const signedCookie = await createSignedCookie(sessionData);
   
-  // Set cookie (expires in 10 minutes)
-  // In Deno Deploy, always use secure cookies (it's always HTTPS)
-  // For local development, check the protocol
+  // Set cookie using response header directly to avoid Oak's secure connection check
+  // In Deno Deploy, it's always HTTPS even though the internal connection shows as HTTP
   const isSecure = isDenoDeploy || ctx.request.url.protocol === "https:";
-  
-  await ctx.cookies.set("oidc_session", signedCookie, {
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: "lax",
-    maxAge: 600, // 10 minutes
-    path: "/",
-  });
+  const secureFlag = isSecure ? "; Secure" : "";
+  const cookieValue = `oidc_session=${signedCookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600${secureFlag}`;
+  ctx.response.headers.append("Set-Cookie", cookieValue);
 
   const authUrl = new URL(`${IDP_URL}/authorize`);
   authUrl.searchParams.set("client_id", CLIENT_ID);
@@ -262,8 +256,13 @@ router.get("/callback", async (ctx: Context) => {
     return;
   }
 
-  // Retrieve session from cookie
-  const sessionCookie = await ctx.cookies.get("oidc_session");
+  // Retrieve session from cookie (parse directly from header to avoid Oak's secure check)
+  const cookieHeader = ctx.request.headers.get("cookie") || "";
+  const sessionCookie = cookieHeader
+    .split(";")
+    .map(c => c.trim())
+    .find(c => c.startsWith("oidc_session="))
+    ?.slice("oidc_session=".length);
   if (!sessionCookie) {
     ctx.response.status = 400;
     ctx.response.headers.set("Content-Type", "text/html; charset=utf-8");
@@ -345,8 +344,10 @@ router.get("/callback", async (ctx: Context) => {
   console.log("📥 State:", state);
   console.log("📥 Redirect URI:", session.redirectUri);
 
-  // Clear the session cookie
-  ctx.cookies.delete("oidc_session", { path: "/" });
+  // Clear the session cookie by setting it to expire immediately
+  const isSecure = isDenoDeploy || ctx.request.url.protocol === "https:";
+  const secureFlag = isSecure ? "; Secure" : "";
+  ctx.response.headers.append("Set-Cookie", `oidc_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag}`);
 
   // Exchange code for tokens
   try {
