@@ -28,14 +28,17 @@ function getRedirectUri(ctx: Context): string {
   if (envRedirectUri) return envRedirectUri;
 
   // Auto-detect from request URL
+  // In Deno Deploy, always use HTTPS (internal requests show as HTTP but external is HTTPS)
   const url = ctx.request.url;
-  return `${url.protocol}//${url.host}/callback`;
+  const protocol = isDenoDeploy ? "https:" : url.protocol;
+  return `${protocol}//${url.host}/callback`;
 }
 
 // Get client base URL dynamically
 function getClientBaseUrl(ctx: Context): string {
   const url = ctx.request.url;
-  return `${url.protocol}//${url.host}`;
+  const protocol = isDenoDeploy ? "https:" : url.protocol;
+  return `${protocol}//${url.host}`;
 }
 
 // Generate PKCE code verifier and challenge
