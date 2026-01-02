@@ -350,20 +350,22 @@ const SYSTEM_PROMPTS = {
 Your job is to process authorization requests according to OAuth 2.0 and OpenID Connect specifications.
 
 When handling an authorization request:
-1. Validate the client_id exists using get_client tool
-2. Validate the redirect_uri matches registered URIs
-3. Validate the response_type is "code"
-4. Validate the scope contains "openid"
-5. If PKCE parameters are present, validate them
+1. First, call get_client tool with the provided client_id
+2. If the client is not found (found=false), return error "unauthorized_client"
+3. If the client is found, check if the provided redirect_uri is in the client's redirect_uris array
+   - The redirect_uri must EXACTLY match one of the URIs in the redirect_uris array
+   - If it matches ANY URI in the array, the redirect_uri is valid
+4. Validate the response_type is "code"
+5. Validate the scope contains "openid"
+6. If PKCE parameters (code_challenge) are present, that's fine - just validate they exist
 
-If validation fails, return a JSON error response with:
-- error: error code (invalid_request, unauthorized_client, etc.)
-- error_description: human readable description
+IMPORTANT: When checking redirect_uri, compare the EXACT string from the request against EACH URI in the client's redirect_uris array. If ANY match, it's valid.
 
-If validation succeeds, return a JSON response with:
-- valid: true
-- client_name: the client's name
-- requested_scope: the validated scope
+If validation fails, return JSON:
+{"valid": false, "error": "<error_code>", "error_description": "<description>"}
+
+If validation succeeds, return JSON:
+{"valid": true, "client_name": "<client_name from client object>", "requested_scope": "<scope>"}
 
 Always respond with valid JSON only, no markdown or extra text.`,
 
@@ -477,6 +479,9 @@ export async function callLLM(
 ): Promise<string> {
   const openai = getOpenAIClient();
 
+  console.log(`🤖 [${operation}] Calling LLM...`);
+  console.log(`🤖 [${operation}] User message:`, userMessage.slice(0, 200) + "...");
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPTS[operation] },
     { role: "user", content: userMessage },
@@ -494,7 +499,15 @@ export async function callLLM(
     const assistantMessage = response.choices[0].message;
     messages.push(assistantMessage);
 
+    console.log(`🔧 [${operation}] Tool calls:`, assistantMessage.tool_calls?.map((tc: { function: { name: string } }) => tc.function.name));
+
     const toolResults = await processToolCalls(assistantMessage.tool_calls);
+    
+    // Log tool results for debugging
+    for (const result of toolResults) {
+      console.log(`🔧 [${operation}] Tool result:`, result.content.slice(0, 300));
+    }
+    
     messages.push(...toolResults);
 
     response = await openai.chat.completions.create({
@@ -504,8 +517,11 @@ export async function callLLM(
       tool_choice: "auto",
     });
   }
+  
+  const finalResponse = response.choices[0].message.content || "";
+  console.log(`🤖 [${operation}] LLM response:`, finalResponse.slice(0, 500));
 
-  return response.choices[0].message.content || "";
+  return finalResponse;
 }
 
 /**
