@@ -1,16 +1,39 @@
 /**
  * Test OIDC Client (Relying Party)
  * Simple client to test the OIDC IdP
+ * Supports both local development and Deno Deploy
  */
 
-import { Application, Router } from "@oak/oak";
+// Load .env file only in local development
+const isDenoDeploy = Deno.env.get("DENO_DEPLOYMENT_ID") !== undefined;
+if (!isDenoDeploy) {
+  await import("@std/dotenv/load");
+}
+
+import { Application, Router, Context } from "@oak/oak";
 import { encodeBase64Url } from "@std/encoding/base64url";
 
-const CLIENT_ID = "test-client-1";
-const CLIENT_SECRET = "test-secret-1";
-const REDIRECT_URI = "http://localhost:3000/callback";
-const IDP_URL = "http://localhost:9052";
-const CLIENT_PORT = 3000;
+// Configuration from environment variables
+const CLIENT_ID = Deno.env.get("CLIENT_ID") || "test-client-1";
+const CLIENT_SECRET = Deno.env.get("CLIENT_SECRET") || "test-secret-1";
+const IDP_URL = Deno.env.get("IDP_URL") || "http://localhost:9052";
+const CLIENT_PORT = parseInt(Deno.env.get("PORT") || "3000");
+
+// Get redirect URI dynamically
+function getRedirectUri(ctx: Context): string {
+  const envRedirectUri = Deno.env.get("REDIRECT_URI");
+  if (envRedirectUri) return envRedirectUri;
+
+  // Auto-detect from request URL
+  const url = ctx.request.url;
+  return `${url.protocol}//${url.host}/callback`;
+}
+
+// Get client base URL dynamically
+function getClientBaseUrl(ctx: Context): string {
+  const url = ctx.request.url;
+  return `${url.protocol}//${url.host}`;
+}
 
 // Generate PKCE code verifier and challenge
 async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
@@ -27,22 +50,24 @@ async function generatePKCE(): Promise<{ verifier: string; challenge: string }> 
 }
 
 // Store PKCE verifier and state in memory (for demo purposes)
-const sessions: Map<string, { verifier: string; nonce: string }> = new Map();
+const sessions: Map<string, { verifier: string; nonce: string; redirectUri: string }> = new Map();
 
 const router = new Router();
 
 // Home page - Start login
-router.get("/", async (ctx) => {
+router.get("/", async (ctx: Context) => {
   const state = crypto.randomUUID();
   const nonce = crypto.randomUUID();
   const pkce = await generatePKCE();
+  const redirectUri = getRedirectUri(ctx);
+  const clientBaseUrl = getClientBaseUrl(ctx);
 
   // Save session
-  sessions.set(state, { verifier: pkce.verifier, nonce });
+  sessions.set(state, { verifier: pkce.verifier, nonce, redirectUri });
 
   const authUrl = new URL(`${IDP_URL}/authorize`);
   authUrl.searchParams.set("client_id", CLIENT_ID);
-  authUrl.searchParams.set("redirect_uri", REDIRECT_URI);
+  authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("scope", "openid profile email");
   authUrl.searchParams.set("state", state);
@@ -74,7 +99,7 @@ router.get("/", async (ctx) => {
       padding: 3rem;
       box-shadow: 0 10px 40px rgba(0,0,0,0.2);
       text-align: center;
-      max-width: 400px;
+      max-width: 500px;
     }
     h1 { color: #333; margin-bottom: 1rem; }
     p { color: #666; margin-bottom: 2rem; }
@@ -99,12 +124,15 @@ router.get("/", async (ctx) => {
       border-radius: 8px;
       font-size: 0.85rem;
       color: #888;
+      text-align: left;
     }
+    .info p { margin-bottom: 0.5rem; color: #666; }
     code {
       background: #e0e0e0;
       padding: 0.2rem 0.4rem;
       border-radius: 4px;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
+      word-break: break-all;
     }
   </style>
 </head>
@@ -114,8 +142,12 @@ router.get("/", async (ctx) => {
     <p>Click below to login via GenAI OIDC IdP</p>
     <a href="${authUrl.toString()}" class="login-btn">Login with OIDC</a>
     <div class="info">
-      <p>State: <code>${state.slice(0, 8)}...</code></p>
-      <p>PKCE Challenge: <code>${pkce.challenge.slice(0, 20)}...</code></p>
+      <p>🏠 Client: <code>${clientBaseUrl}</code></p>
+      <p>🔗 IdP: <code>${IDP_URL}</code></p>
+      <p>🔑 Client ID: <code>${CLIENT_ID}</code></p>
+      <p>↩️ Redirect: <code>${redirectUri}</code></p>
+      <p>🎲 State: <code>${state.slice(0, 8)}...</code></p>
+      <p>🔒 PKCE: <code>${pkce.challenge.slice(0, 20)}...</code></p>
     </div>
   </div>
 </body>
@@ -123,7 +155,7 @@ router.get("/", async (ctx) => {
 });
 
 // Callback - Receive authorization code
-router.get("/callback", async (ctx) => {
+router.get("/callback", async (ctx: Context) => {
   const url = ctx.request.url;
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -134,12 +166,22 @@ router.get("/callback", async (ctx) => {
     ctx.response.headers.set("Content-Type", "text/html; charset=utf-8");
     ctx.response.body = `
 <!DOCTYPE html>
-<html><head><title>Error</title></head>
-<body style="font-family: sans-serif; padding: 2rem;">
-  <h1>❌ Authentication Error</h1>
-  <p><strong>Error:</strong> ${error}</p>
-  <p><strong>Description:</strong> ${errorDescription || "No description"}</p>
-  <a href="/">Try again</a>
+<html><head><title>Error</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; padding: 2rem; background: #fee; }
+  .container { max-width: 600px; margin: 0 auto; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+  h1 { color: #c00; }
+  pre { background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+  a { color: #667eea; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>❌ Authentication Error</h1>
+    <p><strong>Error:</strong> ${error}</p>
+    <p><strong>Description:</strong> ${errorDescription || "No description"}</p>
+    <a href="/">← Try again</a>
+  </div>
 </body></html>`;
     return;
   }
@@ -154,13 +196,35 @@ router.get("/callback", async (ctx) => {
   const session = sessions.get(state);
   if (!session) {
     ctx.response.status = 400;
-    ctx.response.body = "Invalid state - session not found";
+    ctx.response.headers.set("Content-Type", "text/html; charset=utf-8");
+    ctx.response.body = `
+<!DOCTYPE html>
+<html><head><title>Session Error</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; padding: 2rem; background: #ffe; }
+  .container { max-width: 600px; margin: 0 auto; background: white; padding: 2rem; border-radius: 8px; }
+  h1 { color: #c80; }
+  a { color: #667eea; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>⚠️ Session Not Found</h1>
+    <p>The session for this authorization request was not found. This can happen if:</p>
+    <ul>
+      <li>The session expired</li>
+      <li>You're using a different browser/tab</li>
+      <li>The server was restarted (in-memory sessions are lost)</li>
+    </ul>
+    <a href="/">← Start Over</a>
+  </div>
+</body></html>`;
     return;
   }
 
   console.log("📥 Received authorization code:", code);
   console.log("📥 State:", state);
-  console.log("📥 Code verifier:", session.verifier);
+  console.log("📥 Redirect URI:", session.redirectUri);
 
   // Exchange code for tokens
   try {
@@ -172,7 +236,7 @@ router.get("/callback", async (ctx) => {
       body: new URLSearchParams({
         grant_type: "authorization_code",
         code: code,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: session.redirectUri,
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
         code_verifier: session.verifier,
@@ -186,11 +250,21 @@ router.get("/callback", async (ctx) => {
       ctx.response.headers.set("Content-Type", "text/html; charset=utf-8");
       ctx.response.body = `
 <!DOCTYPE html>
-<html><head><title>Token Error</title></head>
-<body style="font-family: sans-serif; padding: 2rem;">
-  <h1>❌ Token Exchange Error</h1>
-  <pre>${JSON.stringify(tokens, null, 2)}</pre>
-  <a href="/">Try again</a>
+<html><head><title>Token Error</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; padding: 2rem; background: #fee; }
+  .container { max-width: 600px; margin: 0 auto; background: white; padding: 2rem; border-radius: 8px; }
+  h1 { color: #c00; }
+  pre { background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+  a { color: #667eea; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>❌ Token Exchange Error</h1>
+    <pre>${JSON.stringify(tokens, null, 2)}</pre>
+    <a href="/">← Try again</a>
+  </div>
 </body></html>`;
       return;
     }
@@ -244,7 +318,7 @@ router.get("/callback", async (ctx) => {
       padding: 1rem;
       border-radius: 8px;
       overflow-x: auto;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
     }
     .user-card {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -306,26 +380,56 @@ router.get("/callback", async (ctx) => {
   } catch (err) {
     console.error("Token exchange error:", err);
     ctx.response.status = 500;
-    ctx.response.body = `Token exchange failed: ${err}`;
+    ctx.response.headers.set("Content-Type", "text/html; charset=utf-8");
+    ctx.response.body = `
+<!DOCTYPE html>
+<html><head><title>Error</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; padding: 2rem; background: #fee; }
+  .container { max-width: 600px; margin: 0 auto; background: white; padding: 2rem; border-radius: 8px; }
+  h1 { color: #c00; }
+  pre { background: #f5f5f5; padding: 1rem; border-radius: 4px; }
+  a { color: #667eea; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>❌ Token Exchange Failed</h1>
+    <pre>${err}</pre>
+    <a href="/">← Try again</a>
+  </div>
+</body></html>`;
   }
+});
+
+// Health check
+router.get("/health", (ctx: Context) => {
+  ctx.response.body = { status: "ok", timestamp: new Date().toISOString() };
 });
 
 const app = new Application();
 app.use(router.routes());
 app.use(router.allowedMethods());
 
-console.log(`
+// Start the server
+if (isDenoDeploy) {
+  console.log("🚀 Starting OIDC Client on Deno Deploy...");
+  console.log(`   IdP URL: ${IDP_URL}`);
+  console.log(`   Client ID: ${CLIENT_ID}`);
+} else {
+  console.log(`
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
 ║   🔐 Test OIDC Client (Relying Party)                       ║
 ║                                                              ║
-║   URL:       http://localhost:${CLIENT_PORT}                          ║
-║   Client ID: ${CLIENT_ID}                              ║
-║   IdP:       ${IDP_URL}                           ║
+║   URL:       http://localhost:${CLIENT_PORT.toString().padEnd(27)}║
+║   Client ID: ${CLIENT_ID.padEnd(42)}║
+║   IdP:       ${IDP_URL.padEnd(42)}║
 ║                                                              ║
 ║   Open http://localhost:${CLIENT_PORT} in your browser            ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 `);
+}
 
 await app.listen({ port: CLIENT_PORT });

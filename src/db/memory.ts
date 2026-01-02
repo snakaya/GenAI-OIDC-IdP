@@ -66,11 +66,18 @@ class MemoryDB {
   }
 
   private initializeTestData(): void {
+    // Additional redirect URIs from environment (comma-separated)
+    const additionalRedirectUris = Deno.env.get("ADDITIONAL_REDIRECT_URIS")?.split(",").map(u => u.trim()).filter(u => u) || [];
+
     // Register test clients
     this.clients.set("test-client-1", {
       client_id: "test-client-1",
       client_secret: "test-secret-1",
-      redirect_uris: ["http://localhost:3000/callback", "http://localhost:8080/callback"],
+      redirect_uris: [
+        "http://localhost:3000/callback",
+        "http://localhost:8080/callback",
+        ...additionalRedirectUris,
+      ],
       client_name: "Test Application 1",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
@@ -80,7 +87,10 @@ class MemoryDB {
     this.clients.set("test-client-2", {
       client_id: "test-client-2",
       client_secret: "test-secret-2",
-      redirect_uris: ["http://localhost:4000/auth/callback"],
+      redirect_uris: [
+        "http://localhost:4000/auth/callback",
+        ...additionalRedirectUris,
+      ],
       client_name: "Test Application 2",
       grant_types: ["authorization_code"],
       response_types: ["code"],

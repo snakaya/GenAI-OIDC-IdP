@@ -221,11 +221,13 @@ GenAI-OIDC-IdP/
 
 ## Deploying to Deno Deploy
 
-### 1. Create a project on Deno Deploy
+### Deploying the IdP
 
-Go to [dash.deno.com](https://dash.deno.com) and create a new project.
+#### 1. Create a project on Deno Deploy
 
-### 2. Set environment variables
+Go to [dash.deno.com](https://dash.deno.com) and create a new project for the IdP.
+
+#### 2. Set environment variables
 
 In the project settings, add the following environment variables:
 
@@ -233,9 +235,15 @@ In the project settings, add the following environment variables:
 |----------|-------------|
 | `OPENAI_API_KEY` | Your OpenAI API key |
 | `JWT_SECRET` | Secret key for JWT signing |
-| `ISSUER` | (Optional) Your deploy URL, e.g., `https://your-project.deno.dev` |
+| `ISSUER` | (Optional) Your deploy URL, e.g., `https://your-idp.deno.dev` |
+| `ADDITIONAL_REDIRECT_URIS` | (Optional) Comma-separated list of additional redirect URIs |
 
-### 3. Deploy
+Example for `ADDITIONAL_REDIRECT_URIS`:
+```
+https://your-client.deno.dev/callback,https://another-client.example.com/callback
+```
+
+#### 3. Deploy the IdP
 
 **Option A: Deploy via GitHub integration**
 
@@ -249,20 +257,53 @@ Entry point: `main.ts`
 # Install deployctl
 deno install -Arf jsr:@deno/deployctl
 
-# Deploy
-deployctl deploy --project=your-project-name main.ts
+# Deploy IdP
+deployctl deploy --project=your-idp-project main.ts
 ```
 
-### 4. Update test client redirect URIs
+### Deploying the Test Client
 
-After deploying, add your Deno Deploy URL to the client's redirect URIs in `src/db/memory.ts`:
+#### 1. Create another project on Deno Deploy
 
-```typescript
-redirect_uris: [
-  "http://localhost:3000/callback",
-  "https://your-project.deno.dev/callback"
-],
+Create a separate project for the test client.
+
+#### 2. Set environment variables for the client
+
+| Variable | Description |
+|----------|-------------|
+| `IDP_URL` | The IdP URL, e.g., `https://your-idp.deno.dev` |
+| `CLIENT_ID` | (Optional) Client ID, default: `test-client-1` |
+| `CLIENT_SECRET` | (Optional) Client secret, default: `test-secret-1` |
+| `REDIRECT_URI` | (Optional) Override redirect URI if needed |
+
+#### 3. Deploy the client
+
+```bash
+# Deploy client
+deployctl deploy --project=your-client-project test-client.ts
 ```
+
+#### 4. Update IdP redirect URIs
+
+Add your client's Deno Deploy URL to the IdP's `ADDITIONAL_REDIRECT_URIS` environment variable:
+
+```
+https://your-client.deno.dev/callback
+```
+
+### Complete Deno Deploy Setup Example
+
+1. **IdP Project** (`genai-oidc-idp`)
+   - Entry point: `main.ts`
+   - Environment variables:
+     - `OPENAI_API_KEY`: `sk-...`
+     - `JWT_SECRET`: `your-secret`
+     - `ADDITIONAL_REDIRECT_URIS`: `https://genai-oidc-client.deno.dev/callback`
+
+2. **Client Project** (`genai-oidc-client`)
+   - Entry point: `test-client.ts`
+   - Environment variables:
+     - `IDP_URL`: `https://genai-oidc-idp.deno.dev`
 
 ## Caveats
 
