@@ -3,13 +3,18 @@
  * A proof-of-concept OIDC IdP powered by OpenAI LLM
  */
 
-import "@std/dotenv/load";
+// Load .env file only in local development (not in Deno Deploy)
+const isDenoDeploy = Deno.env.get("DENO_DEPLOYMENT_ID") !== undefined;
+if (!isDenoDeploy) {
+  await import("@std/dotenv/load");
+}
+
 import { Application } from "@oak/oak";
 import oidcRouter from "./src/routes/oidc.ts";
 import { db } from "./src/db/memory.ts";
 
-const PORT = parseInt(Deno.env.get("PORT") || "9052");
-const ISSUER = Deno.env.get("ISSUER") || `http://localhost:${PORT}`;
+const PORT = parseInt(Deno.env.get("PORT") || "8000");
+const ISSUER = Deno.env.get("ISSUER") || (isDenoDeploy ? "" : `http://localhost:${PORT}`);
 
 // Initialize the application
 const app = new Application();
@@ -266,7 +271,13 @@ setInterval(() => {
 }, 60000); // Every minute
 
 // Start the server
-console.log(`
+if (isDenoDeploy) {
+  // Deno Deploy uses Deno.serve automatically via Oak
+  console.log("🚀 Starting on Deno Deploy...");
+  console.log(`   Issuer: ${ISSUER || "(auto-detected)"}`);
+  console.log(`   Model: gpt-5-mini`);
+} else {
+  console.log(`
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
 ║   🤖 GenAI OIDC Identity Provider                           ║
@@ -284,5 +295,6 @@ console.log(`
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
 `);
+}
 
 await app.listen({ port: PORT });

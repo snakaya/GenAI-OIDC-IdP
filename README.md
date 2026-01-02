@@ -219,12 +219,57 @@ GenAI-OIDC-IdP/
         └── jwt.ts            # JWT signing & PKCE verification tools
 ```
 
+## Deploying to Deno Deploy
+
+### 1. Create a project on Deno Deploy
+
+Go to [dash.deno.com](https://dash.deno.com) and create a new project.
+
+### 2. Set environment variables
+
+In the project settings, add the following environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | Your OpenAI API key |
+| `JWT_SECRET` | Secret key for JWT signing |
+| `ISSUER` | (Optional) Your deploy URL, e.g., `https://your-project.deno.dev` |
+
+### 3. Deploy
+
+**Option A: Deploy via GitHub integration**
+
+Link your GitHub repository in Deno Deploy dashboard. It will auto-deploy on push.
+
+Entry point: `main.ts`
+
+**Option B: Deploy via CLI**
+
+```bash
+# Install deployctl
+deno install -Arf jsr:@deno/deployctl
+
+# Deploy
+deployctl deploy --project=your-project-name main.ts
+```
+
+### 4. Update test client redirect URIs
+
+After deploying, add your Deno Deploy URL to the client's redirect URIs in `src/db/memory.ts`:
+
+```typescript
+redirect_uris: [
+  "http://localhost:3000/callback",
+  "https://your-project.deno.dev/callback"
+],
+```
+
 ## Caveats
 
 ⚠️ **This is a Proof of Concept project**
 
 - Not intended for production use
-- In-memory DB means data is lost on restart
+- In-memory DB means data is lost on restart (and on each Deno Deploy instance)
 - Uses HS256 signing (RS256 recommended for production)
 - LLM dependency introduces latency
 - Each request incurs OpenAI API costs

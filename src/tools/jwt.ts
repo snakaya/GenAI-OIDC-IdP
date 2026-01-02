@@ -10,8 +10,15 @@ const getJwtSecret = (): string => {
   return Deno.env.get("JWT_SECRET") || "default-secret-change-me";
 };
 
+// Global issuer - can be set dynamically for Deno Deploy
+let currentIssuer: string | null = null;
+
+export const setIssuer = (issuer: string): void => {
+  currentIssuer = issuer;
+};
+
 const getIssuer = (): string => {
-  return Deno.env.get("ISSUER") || "http://localhost:9052";
+  return currentIssuer || Deno.env.get("ISSUER") || "http://localhost:8000";
 };
 
 /**

@@ -11,8 +11,30 @@ import {
   processTokenExchange,
   processUserinfo,
 } from "../llm/openai.ts";
+import { setIssuer } from "../tools/jwt.ts";
 
 const router = new Router();
+
+/**
+ * Get issuer URL (from env or auto-detect from request)
+ */
+function getIssuer(ctx: Context): string {
+  const envIssuer = Deno.env.get("ISSUER");
+  if (envIssuer) return envIssuer;
+
+  // Auto-detect from request URL (for Deno Deploy)
+  const url = ctx.request.url;
+  return `${url.protocol}//${url.host}`;
+}
+
+/**
+ * Middleware to set issuer dynamically from request URL
+ */
+router.use(async (ctx: Context, next) => {
+  const issuer = getIssuer(ctx);
+  setIssuer(issuer);
+  await next();
+});
 
 /**
  * Authorization Endpoint - GET /authorize
@@ -296,7 +318,7 @@ router.post("/userinfo", async (ctx: Context) => {
  * OpenID Configuration - GET /.well-known/openid-configuration
  */
 router.get("/.well-known/openid-configuration", (ctx: Context) => {
-  const issuer = Deno.env.get("ISSUER") || "http://localhost:9052";
+  const issuer = getIssuer(ctx);
 
   ctx.response.headers.set("Content-Type", "application/json");
   ctx.response.body = {
