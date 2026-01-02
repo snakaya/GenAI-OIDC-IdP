@@ -11,13 +11,16 @@ if (!isDenoDeploy) {
 }
 
 import { Application, Router, Context } from "@oak/oak";
-import { encodeBase64Url } from "@std/encoding/base64url";
+import { encodeBase64Url, decodeBase64Url } from "@std/encoding/base64url";
 
 // Configuration from environment variables
 const CLIENT_ID = Deno.env.get("CLIENT_ID") || "test-client-1";
 const CLIENT_SECRET = Deno.env.get("CLIENT_SECRET") || "test-secret-1";
 const IDP_URL = Deno.env.get("IDP_URL") || "http://localhost:9052";
 const CLIENT_PORT = parseInt(Deno.env.get("PORT") || "3000");
+
+// Cookie-based session secret (for signing)
+const SESSION_SECRET = Deno.env.get("SESSION_SECRET") || "default-session-secret-change-me";
 
 // Get redirect URI dynamically
 function getRedirectUri(ctx: Context): string {
@@ -49,8 +52,54 @@ async function generatePKCE(): Promise<{ verifier: string; challenge: string }> 
   return { verifier, challenge };
 }
 
-// Store PKCE verifier and state in memory (for demo purposes)
-const sessions: Map<string, { verifier: string; nonce: string; redirectUri: string }> = new Map();
+// Simple HMAC signing for cookie data
+async function signData(data: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(SESSION_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
+  return encodeBase64Url(new Uint8Array(signature));
+}
+
+async function verifyAndDecodeData(signedData: string): Promise<string | null> {
+  try {
+    const parts = signedData.split(".");
+    if (parts.length !== 2) return null;
+    
+    const [data, signature] = parts;
+    const expectedSignature = await signData(data);
+    
+    if (signature !== expectedSignature) return null;
+    
+    const decoder = new TextDecoder();
+    return decoder.decode(decodeBase64Url(data));
+  } catch {
+    return null;
+  }
+}
+
+async function createSignedCookie(data: object): Promise<string> {
+  const json = JSON.stringify(data);
+  const encoder = new TextEncoder();
+  const encoded = encodeBase64Url(encoder.encode(json));
+  const signature = await signData(encoded);
+  return `${encoded}.${signature}`;
+}
+
+async function parseSignedCookie(cookie: string): Promise<object | null> {
+  const decoded = await verifyAndDecodeData(cookie);
+  if (!decoded) return null;
+  try {
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
 
 const router = new Router();
 
@@ -62,8 +111,25 @@ router.get("/", async (ctx: Context) => {
   const redirectUri = getRedirectUri(ctx);
   const clientBaseUrl = getClientBaseUrl(ctx);
 
-  // Save session
-  sessions.set(state, { verifier: pkce.verifier, nonce, redirectUri });
+  // Store session data in a signed cookie
+  const sessionData = {
+    state,
+    verifier: pkce.verifier,
+    nonce,
+    redirectUri,
+    createdAt: Date.now(),
+  };
+  
+  const signedCookie = await createSignedCookie(sessionData);
+  
+  // Set cookie (expires in 10 minutes)
+  ctx.cookies.set("oidc_session", signedCookie, {
+    httpOnly: true,
+    secure: ctx.request.url.protocol === "https:",
+    sameSite: "lax",
+    maxAge: 600, // 10 minutes
+    path: "/",
+  });
 
   const authUrl = new URL(`${IDP_URL}/authorize`);
   authUrl.searchParams.set("client_id", CLIENT_ID);
@@ -192,8 +258,38 @@ router.get("/callback", async (ctx: Context) => {
     return;
   }
 
-  // Retrieve session
-  const session = sessions.get(state);
+  // Retrieve session from cookie
+  const sessionCookie = await ctx.cookies.get("oidc_session");
+  if (!sessionCookie) {
+    ctx.response.status = 400;
+    ctx.response.headers.set("Content-Type", "text/html; charset=utf-8");
+    ctx.response.body = `
+<!DOCTYPE html>
+<html><head><title>Session Error</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; padding: 2rem; background: #ffe; }
+  .container { max-width: 600px; margin: 0 auto; background: white; padding: 2rem; border-radius: 8px; }
+  h1 { color: #c80; }
+  a { color: #667eea; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>⚠️ Session Cookie Not Found</h1>
+    <p>The session cookie was not found. This can happen if:</p>
+    <ul>
+      <li>Cookies are disabled in your browser</li>
+      <li>The session expired (10 minutes)</li>
+      <li>You're using a different browser/device</li>
+    </ul>
+    <a href="/">← Start Over</a>
+  </div>
+</body></html>`;
+    return;
+  }
+
+  const session = await parseSignedCookie(sessionCookie) as { state: string; verifier: string; nonce: string; redirectUri: string; createdAt: number } | null;
+  
   if (!session) {
     ctx.response.status = 400;
     ctx.response.headers.set("Content-Type", "text/html; charset=utf-8");
@@ -209,13 +305,32 @@ router.get("/callback", async (ctx: Context) => {
 </head>
 <body>
   <div class="container">
-    <h1>⚠️ Session Not Found</h1>
-    <p>The session for this authorization request was not found. This can happen if:</p>
-    <ul>
-      <li>The session expired</li>
-      <li>You're using a different browser/tab</li>
-      <li>The server was restarted (in-memory sessions are lost)</li>
-    </ul>
+    <h1>⚠️ Invalid Session</h1>
+    <p>The session data could not be verified. Please try again.</p>
+    <a href="/">← Start Over</a>
+  </div>
+</body></html>`;
+    return;
+  }
+
+  // Verify state matches
+  if (session.state !== state) {
+    ctx.response.status = 400;
+    ctx.response.headers.set("Content-Type", "text/html; charset=utf-8");
+    ctx.response.body = `
+<!DOCTYPE html>
+<html><head><title>State Mismatch</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; padding: 2rem; background: #fee; }
+  .container { max-width: 600px; margin: 0 auto; background: white; padding: 2rem; border-radius: 8px; }
+  h1 { color: #c00; }
+  a { color: #667eea; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>❌ State Mismatch</h1>
+    <p>The state parameter does not match. This could indicate a CSRF attack.</p>
     <a href="/">← Start Over</a>
   </div>
 </body></html>`;
@@ -225,6 +340,9 @@ router.get("/callback", async (ctx: Context) => {
   console.log("📥 Received authorization code:", code);
   console.log("📥 State:", state);
   console.log("📥 Redirect URI:", session.redirectUri);
+
+  // Clear the session cookie
+  ctx.cookies.delete("oidc_session", { path: "/" });
 
   // Exchange code for tokens
   try {
@@ -278,9 +396,6 @@ router.get("/callback", async (ctx: Context) => {
 
     const userinfo = await userinfoResponse.json();
     console.log("📥 Userinfo:", userinfo);
-
-    // Clean up session
-    sessions.delete(state);
 
     // Display success
     ctx.response.headers.set("Content-Type", "text/html; charset=utf-8");
