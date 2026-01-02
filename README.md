@@ -197,6 +197,7 @@ GenAI-OIDC-IdP/
 | `JWT_SECRET` | ✅ | Secret key for JWT signing |
 | `ISSUER` | ❌ | Your deploy URL (auto-detected) |
 | `ADDITIONAL_REDIRECT_URIS` | ❌ | Comma-separated redirect URIs |
+| `TEST_CLIENT_URL` | ❌ | Test client URL (shown on top page) |
 
 3. **Deploy**:
 
@@ -241,6 +242,7 @@ https://your-client.deno.dev/callback
 OPENAI_API_KEY=sk-...
 JWT_SECRET=super-secret-key
 ADDITIONAL_REDIRECT_URIS=https://genai-oidc-client.deno.dev/callback
+TEST_CLIENT_URL=https://genai-oidc-client.deno.dev
 ```
 
 **Client** (`genai-oidc-client.deno.dev`):

@@ -15,6 +15,7 @@ import { db } from "./src/db/memory.ts";
 
 const PORT = parseInt(Deno.env.get("PORT") || "8000");
 const ISSUER = Deno.env.get("ISSUER") || (isDenoDeploy ? "" : `http://localhost:${PORT}`);
+const TEST_CLIENT_URL = Deno.env.get("TEST_CLIENT_URL") || (isDenoDeploy ? "" : "http://localhost:3000");
 
 // Log environment info on startup
 console.log("🔧 Environment:");
@@ -195,6 +196,39 @@ app.use(async (ctx, next) => {
       font-size: 0.8rem;
       margin-top: 0.2rem;
     }
+    .try-it {
+      margin-top: 1.5rem;
+      padding: 1.5rem;
+      background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(124, 58, 237, 0.1));
+      border-radius: 12px;
+      text-align: center;
+      border: 1px solid rgba(0, 212, 255, 0.2);
+    }
+    .try-it h3 {
+      color: #00d4ff;
+      margin-bottom: 0.5rem;
+    }
+    .try-it p {
+      color: #888;
+      font-size: 0.85rem;
+      margin-bottom: 1rem;
+    }
+    .try-btn {
+      display: inline-block;
+      background: linear-gradient(135deg, #00d4ff, #7c3aed);
+      color: white;
+      padding: 0.8rem 2rem;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      transition: all 0.2s;
+      box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+    }
+    .try-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 212, 255, 0.4);
+      text-decoration: none;
+    }
     .footer {
       margin-top: 2rem;
       text-align: center;
@@ -260,6 +294,14 @@ app.use(async (ctx, next) => {
         <div class="item-detail">Password: admin123 | Email: admin@example.com</div>
       </div>
     </div>
+
+    ${TEST_CLIENT_URL ? `
+    <div class="try-it">
+      <h3>🚀 Try It Now!</h3>
+      <p>Experience the LLM-powered OIDC authentication flow</p>
+      <a href="${TEST_CLIENT_URL}" class="try-btn" target="_blank">Open Test Client</a>
+    </div>
+    ` : ""}
 
     <div class="footer">
       <p>Issuer: <code>${ISSUER}</code></p>
