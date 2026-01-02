@@ -123,9 +123,13 @@ router.get("/", async (ctx: Context) => {
   const signedCookie = await createSignedCookie(sessionData);
   
   // Set cookie (expires in 10 minutes)
-  ctx.cookies.set("oidc_session", signedCookie, {
+  // In Deno Deploy, always use secure cookies (it's always HTTPS)
+  // For local development, check the protocol
+  const isSecure = isDenoDeploy || ctx.request.url.protocol === "https:";
+  
+  await ctx.cookies.set("oidc_session", signedCookie, {
     httpOnly: true,
-    secure: ctx.request.url.protocol === "https:",
+    secure: isSecure,
     sameSite: "lax",
     maxAge: 600, // 10 minutes
     path: "/",
@@ -522,7 +526,11 @@ router.get("/health", (ctx: Context) => {
   ctx.response.body = { status: "ok", timestamp: new Date().toISOString() };
 });
 
-const app = new Application();
+// Create application with proxy support for Deno Deploy
+const app = new Application({
+  // Trust proxy headers (X-Forwarded-Proto) in Deno Deploy
+  proxy: isDenoDeploy,
+});
 app.use(router.routes());
 app.use(router.allowedMethods());
 
