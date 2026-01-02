@@ -16,6 +16,18 @@ import { db } from "./src/db/memory.ts";
 const PORT = parseInt(Deno.env.get("PORT") || "8000");
 const ISSUER = Deno.env.get("ISSUER") || (isDenoDeploy ? "" : `http://localhost:${PORT}`);
 
+// Log environment info on startup
+console.log("🔧 Environment:");
+console.log("   DENO_DEPLOYMENT_ID:", Deno.env.get("DENO_DEPLOYMENT_ID") || "(not set - local)");
+console.log("   ISSUER:", ISSUER || "(auto-detect)");
+console.log("   ADDITIONAL_REDIRECT_URIS:", Deno.env.get("ADDITIONAL_REDIRECT_URIS") || "(not set)");
+
+// Log registered clients
+const testClient = db.getClient("test-client-1");
+if (testClient) {
+  console.log("📋 test-client-1 registered redirect_uris:", testClient.redirect_uris);
+}
+
 // Initialize the application
 const app = new Application();
 

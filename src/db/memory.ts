@@ -67,17 +67,33 @@ class MemoryDB {
 
   private initializeTestData(): void {
     // Additional redirect URIs from environment (comma-separated)
-    const additionalRedirectUris = Deno.env.get("ADDITIONAL_REDIRECT_URIS")?.split(",").map(u => u.trim()).filter(u => u) || [];
+    const additionalRedirectUrisEnv = Deno.env.get("ADDITIONAL_REDIRECT_URIS") || "";
+    const additionalRedirectUris = additionalRedirectUrisEnv
+      .split(",")
+      .map(u => u.trim())
+      .filter(u => u.length > 0);
+
+    console.log("📋 Additional redirect URIs from env:", additionalRedirectUris);
+
+    const client1RedirectUris = [
+      "http://localhost:3000/callback",
+      "http://localhost:8080/callback",
+      ...additionalRedirectUris,
+    ];
+
+    const client2RedirectUris = [
+      "http://localhost:4000/auth/callback",
+      ...additionalRedirectUris,
+    ];
+
+    console.log("📋 test-client-1 redirect URIs:", client1RedirectUris);
+    console.log("📋 test-client-2 redirect URIs:", client2RedirectUris);
 
     // Register test clients
     this.clients.set("test-client-1", {
       client_id: "test-client-1",
       client_secret: "test-secret-1",
-      redirect_uris: [
-        "http://localhost:3000/callback",
-        "http://localhost:8080/callback",
-        ...additionalRedirectUris,
-      ],
+      redirect_uris: client1RedirectUris,
       client_name: "Test Application 1",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
@@ -87,10 +103,7 @@ class MemoryDB {
     this.clients.set("test-client-2", {
       client_id: "test-client-2",
       client_secret: "test-secret-2",
-      redirect_uris: [
-        "http://localhost:4000/auth/callback",
-        ...additionalRedirectUris,
-      ],
+      redirect_uris: client2RedirectUris,
       client_name: "Test Application 2",
       grant_types: ["authorization_code"],
       response_types: ["code"],
