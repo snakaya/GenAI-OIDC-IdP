@@ -19,6 +19,7 @@ This project takes an experimental approach where the main processing of an OIDC
 - 🎨 **Dynamic UI Generation**: Login pages are generated in real-time by LLM
 - 🛠️ **Function Calling**: Security functions like JWT signing are provided as Tools
 - ☁️ **Deno Deploy Ready**: Works on Deno Deploy with cookie-based sessions
+- ⏳ **Loading States**: Animated loading screens while AI generates content
 
 ## Quick Start
 
@@ -45,20 +46,28 @@ cp env.example .env
 Edit `.env` file:
 
 ```env
+# Required
 OPENAI_API_KEY=sk-your-openai-api-key
-PORT=8000
-ISSUER=http://localhost:8000
 JWT_SECRET=your-super-secret-key
+
+# IdP Configuration
+PORT=9052
+ISSUER=http://localhost:9052
+OPENAI_MODEL=gpt-4o
+
+# Client Configuration
+CLIENT_PORT=3000
+IDP_URL=http://localhost:9052
 ```
 
 ### Running Locally
 
-**Terminal 1** - Start the IdP server:
+**Terminal 1** - Start the IdP server (port 9052):
 ```bash
 deno task dev
 ```
 
-**Terminal 2** - Start the test client:
+**Terminal 2** - Start the test client (port 3000):
 ```bash
 deno task client
 ```
@@ -73,12 +82,48 @@ Then open `http://localhost:3000` in your browser and click "Login with OIDC".
 | user2 | password2 |
 | admin | admin123 |
 
+## User Experience Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. User clicks "Login with OIDC" on Client                    │
+└─────────────────────────┬───────────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  2. Loading Screen: "🤖 AI is generating your login page..."   │
+│     (Animated spinner, shown immediately)                       │
+└─────────────────────────┬───────────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  3. LLM generates custom login page                            │
+│     (Dark theme, modern UI, unique each time)                   │
+└─────────────────────────┬───────────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  4. User enters credentials and submits                        │
+└─────────────────────────┬───────────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  5. Loading Overlay: "🤖 AI is authenticating..."              │
+│     (Full-page overlay with spinner)                            │
+└─────────────────────────┬───────────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  6. LLM validates credentials, generates tokens                │
+└─────────────────────────┬───────────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  7. Redirect to Client with authorization code                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/.well-known/openid-configuration` | OpenID Connect Discovery |
-| GET | `/authorize` | Authorization Endpoint |
+| GET | `/authorize` | Authorization Endpoint (shows loading, then login) |
+| GET | `/authorize/login-form` | Login form generator (called by loading page) |
 | POST | `/authorize/callback` | Login Form Submission |
 | POST | `/token` | Token Endpoint |
 | GET/POST | `/userinfo` | UserInfo Endpoint |
@@ -124,7 +169,7 @@ Then open `http://localhost:3000` in your browser and click "Login with OIDC".
 │  │                   OpenAI LLM Module                     ││
 │  │                                                         ││
 │  │  • Authorization request validation                     ││
-│  │  • Dynamic login page generation                        ││
+│  │  • Dynamic login page generation (with loading states)  ││
 │  │  • User authentication processing                       ││
 │  │  • Token exchange processing                            ││
 │  │  • User info retrieval                                  ││
@@ -132,7 +177,7 @@ Then open `http://localhost:3000` in your browser and click "Login with OIDC".
 │                             │                               │
 │  ┌────────────────┐  ┌──────▼─────────┐  ┌────────────────┐ │
 │  │  Memory DB     │  │  JWT Tools     │  │  OpenAI API    │ │
-│  │  (Clients,     │  │  (Sign/Verify) │  │  (gpt-5-mini)  │ │
+│  │  (Clients,     │  │  (Sign/Verify) │  │  (configurable)│ │
 │  │   Users,       │  │                │  │                │ │
 │  │   Tokens)      │  │                │  │                │ │
 │  └────────────────┘  └────────────────┘  └────────────────┘ │
@@ -178,10 +223,34 @@ GenAI-OIDC-IdP/
     ├── llm/
     │   └── openai.ts         # OpenAI API integration & Function Calling
     ├── routes/
-    │   └── oidc.ts           # OIDC endpoints
+    │   └── oidc.ts           # OIDC endpoints (with loading screens)
     └── tools/
         └── jwt.ts            # JWT signing & PKCE verification tools
 ```
+
+## Environment Variables
+
+### IdP Server (main.ts)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | ✅ | - | Your OpenAI API key |
+| `OPENAI_MODEL` | ❌ | `gpt-5-mini` | LLM model to use |
+| `PORT` | ❌ | `9052` | Server port |
+| `ISSUER` | ❌ | auto-detect | Issuer URL |
+| `JWT_SECRET` | ✅ | - | Secret key for JWT signing |
+| `ADDITIONAL_REDIRECT_URIS` | ❌ | - | Comma-separated redirect URIs |
+| `TEST_CLIENT_URL` | ❌ | - | Test client URL (shown on top page) |
+
+### Test Client (test-client.ts)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `IDP_URL` | ❌ | `http://localhost:9052` | IdP URL |
+| `CLIENT_PORT` | ❌ | `3000` | Client server port |
+| `CLIENT_ID` | ❌ | `test-client-1` | OIDC client ID |
+| `CLIENT_SECRET` | ❌ | `test-secret-1` | OIDC client secret |
+| `SESSION_SECRET` | ❌ | auto-generated | Cookie signing secret |
 
 ## Deploying to Deno Deploy
 
@@ -241,6 +310,7 @@ https://your-client.deno.dev/callback
 **IdP** (`genai-oidc-idp.deno.dev`):
 ```
 OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o
 JWT_SECRET=super-secret-key
 ADDITIONAL_REDIRECT_URIS=https://genai-oidc-client.deno.dev/callback
 TEST_CLIENT_URL=https://genai-oidc-client.deno.dev
@@ -295,7 +365,7 @@ curl https://your-idp.deno.dev/userinfo \
 | **Not for Production** | Security not hardened for real-world use |
 | **In-Memory Database** | Data lost on restart/redeploy |
 | **HS256 Signing** | RS256 recommended for production |
-| **LLM Latency** | Each request calls OpenAI API |
+| **LLM Latency** | Each request calls OpenAI API (loading screens help UX) |
 | **API Costs** | Every authentication incurs OpenAI charges |
 | **Session Handling** | Cookie-based (works across Deno Deploy instances) |
 
