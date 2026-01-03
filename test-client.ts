@@ -17,7 +17,8 @@ import { encodeBase64Url, decodeBase64Url } from "@std/encoding/base64url";
 const CLIENT_ID = Deno.env.get("CLIENT_ID") || "test-client-1";
 const CLIENT_SECRET = Deno.env.get("CLIENT_SECRET") || "test-secret-1";
 const IDP_URL = Deno.env.get("IDP_URL") || "http://localhost:9052";
-const CLIENT_PORT = parseInt(Deno.env.get("PORT") || "3000");
+// CLIENT_PORT takes precedence over PORT for the test client
+const CLIENT_PORT = parseInt(Deno.env.get("CLIENT_PORT") || Deno.env.get("PORT") || "3000");
 
 // Cookie-based session secret (for signing)
 const SESSION_SECRET = Deno.env.get("SESSION_SECRET") || "default-session-secret-change-me";

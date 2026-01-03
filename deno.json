@@ -1,6 +1,7 @@
 {
-  "name": "genai-oidc-idp",
+  "name": "@genai/oidc-idp",
   "version": "0.1.0",
+  "exports": "./main.ts",
   "tasks": {
     "dev": "deno run --allow-net --allow-env --allow-read --watch main.ts",
     "start": "deno run --allow-net --allow-env --allow-read main.ts",
