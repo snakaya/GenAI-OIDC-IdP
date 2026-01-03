@@ -16,6 +16,7 @@ import { db } from "./src/db/memory.ts";
 const PORT = parseInt(Deno.env.get("PORT") || "8000");
 const ISSUER = Deno.env.get("ISSUER") || (isDenoDeploy ? "" : `http://localhost:${PORT}`);
 const TEST_CLIENT_URL = Deno.env.get("TEST_CLIENT_URL") || (isDenoDeploy ? "" : "http://localhost:3000");
+const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-5-mini";
 
 // Log environment info on startup
 console.log("🔧 Environment:");
@@ -305,7 +306,7 @@ app.use(async (ctx, next) => {
 
     <div class="footer">
       <p>Issuer: <code>${ISSUER}</code></p>
-      <p>Model: gpt-5-mini</p>
+      <p>Model: ${OPENAI_MODEL}</p>
     </div>
   </div>
 </body>
@@ -329,7 +330,7 @@ if (isDenoDeploy) {
   // Deno Deploy uses Deno.serve automatically via Oak
   console.log("🚀 Starting on Deno Deploy...");
   console.log(`   Issuer: ${ISSUER || "(auto-detected)"}`);
-  console.log(`   Model: gpt-5-mini`);
+  console.log(`   Model: ${OPENAI_MODEL}`);
 } else {
   console.log(`
 ╔══════════════════════════════════════════════════════════════╗
@@ -338,7 +339,7 @@ if (isDenoDeploy) {
 ║                                                              ║
 ║   Issuer:  ${ISSUER.padEnd(46)}║
 ║   Port:    ${PORT.toString().padEnd(46)}║
-║   Model:   gpt-5-mini                                        ║
+║   Model:   ${OPENAI_MODEL.padEnd(46)}║
 ║                                                              ║
 ║   Endpoints:                                                 ║
 ║   • GET  /.well-known/openid-configuration                   ║

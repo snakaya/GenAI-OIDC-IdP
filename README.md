@@ -7,7 +7,7 @@
 This project takes an experimental approach where the main processing of an OIDC (OpenID Connect) Identity Provider is delegated to OpenAI's LLM via Function Calling.
 
 - **Framework**: Oak (Deno)
-- **LLM**: OpenAI gpt-5-mini
+- **LLM**: OpenAI (configurable, default: gpt-5-mini)
 - **Authentication**: Username/Password
 - **PKCE**: Supported (S256 and plain)
 - **Deployment**: Local development & Deno Deploy
@@ -194,6 +194,7 @@ GenAI-OIDC-IdP/
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `OPENAI_API_KEY` | ✅ | Your OpenAI API key |
+| `OPENAI_MODEL` | ❌ | LLM model (default: `gpt-5-mini`) |
 | `JWT_SECRET` | ✅ | Secret key for JWT signing |
 | `ISSUER` | ❌ | Your deploy URL (auto-detected) |
 | `ADDITIONAL_REDIRECT_URIS` | ❌ | Comma-separated redirect URIs |

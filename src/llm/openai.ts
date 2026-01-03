@@ -13,7 +13,8 @@ const getOpenAIClient = (): OpenAI => {
   });
 };
 
-const MODEL = "gpt-5-mini";
+// LLM model can be configured via environment variable
+const MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-5-mini";
 
 /**
  * Database access tools for the LLM
