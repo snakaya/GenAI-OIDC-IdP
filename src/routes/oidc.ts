@@ -38,9 +38,189 @@ router.use(async (ctx: Context, next) => {
 
 /**
  * Authorization Endpoint - GET /authorize
- * Initiates the authorization flow
+ * Shows loading screen immediately, then loads LLM-generated login form
  */
-router.get("/authorize", async (ctx: Context) => {
+router.get("/authorize", (ctx: Context) => {
+  const url = ctx.request.url;
+  const queryString = url.search;
+
+  console.log("📥 Authorization request - showing loading screen");
+
+  // Return loading page immediately
+  ctx.response.headers.set("Content-Type", "text/html; charset=utf-8");
+  ctx.response.body = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loading... - GenAI OIDC IdP</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #e0e0e0;
+    }
+    .container {
+      text-align: center;
+      padding: 3rem;
+    }
+    .logo {
+      font-size: 4rem;
+      margin-bottom: 1.5rem;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.1); opacity: 0.8; }
+    }
+    h1 {
+      color: #00d4ff;
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+      text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+    }
+    .subtitle {
+      color: #888;
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+    .loader {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+    }
+    .loader span {
+      width: 12px;
+      height: 12px;
+      background: linear-gradient(135deg, #00d4ff, #7c3aed);
+      border-radius: 50%;
+      animation: bounce 1.4s ease-in-out infinite;
+    }
+    .loader span:nth-child(1) { animation-delay: 0s; }
+    .loader span:nth-child(2) { animation-delay: 0.2s; }
+    .loader span:nth-child(3) { animation-delay: 0.4s; }
+    .loader span:nth-child(4) { animation-delay: 0.6s; }
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40% { transform: translateY(-15px); }
+    }
+    .status {
+      color: #00d4ff;
+      font-size: 0.85rem;
+      padding: 0.8rem 1.5rem;
+      background: rgba(0, 212, 255, 0.1);
+      border-radius: 20px;
+      display: inline-block;
+      border: 1px solid rgba(0, 212, 255, 0.2);
+    }
+    .status-icon {
+      display: inline-block;
+      margin-right: 0.5rem;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .error-container {
+      display: none;
+      background: rgba(255, 0, 0, 0.1);
+      border: 1px solid rgba(255, 0, 0, 0.3);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-top: 2rem;
+      color: #ff6b6b;
+    }
+    .error-container h2 {
+      color: #ff6b6b;
+      margin-bottom: 0.5rem;
+    }
+    #login-content {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="loading-container">
+    <div class="logo">🤖</div>
+    <h1>GenAI OIDC Identity Provider</h1>
+    <p class="subtitle">Preparing your secure login experience...</p>
+    <div class="loader">
+      <span></span>
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+    <div class="status">
+      <span class="status-icon">⚙️</span>
+      <span id="status-text">AI is generating your login page...</span>
+    </div>
+    <div class="error-container" id="error-container">
+      <h2>⚠️ Error</h2>
+      <p id="error-message"></p>
+      <p style="margin-top: 1rem;"><a href="javascript:location.reload()" style="color: #00d4ff;">Try again</a></p>
+    </div>
+  </div>
+  <div id="login-content"></div>
+
+  <script>
+    const statusText = document.getElementById('status-text');
+    const loadingContainer = document.getElementById('loading-container');
+    const loginContent = document.getElementById('login-content');
+    const errorContainer = document.getElementById('error-container');
+    const errorMessage = document.getElementById('error-message');
+
+    // Animate status messages
+    const messages = [
+      'AI is generating your login page...',
+      'Crafting a secure experience...',
+      'Almost ready...',
+    ];
+    let msgIndex = 0;
+    const messageInterval = setInterval(() => {
+      msgIndex = (msgIndex + 1) % messages.length;
+      statusText.textContent = messages[msgIndex];
+    }, 2000);
+
+    // Fetch the actual login form
+    fetch('/authorize/login-form${queryString}')
+      .then(response => {
+        if (!response.ok) {
+          return response.json().then(err => { throw err; });
+        }
+        return response.text();
+      })
+      .then(html => {
+        clearInterval(messageInterval);
+        // Replace entire page with login form
+        document.open();
+        document.write(html);
+        document.close();
+      })
+      .catch(error => {
+        clearInterval(messageInterval);
+        loadingContainer.querySelector('.loader').style.display = 'none';
+        loadingContainer.querySelector('.status').style.display = 'none';
+        errorContainer.style.display = 'block';
+        errorMessage.textContent = error.error_description || error.message || 'An unexpected error occurred';
+      });
+  </script>
+</body>
+</html>`;
+});
+
+/**
+ * Login Form Generator - GET /authorize/login-form
+ * Generates the actual login form via LLM (called by loading page)
+ */
+router.get("/authorize/login-form", async (ctx: Context) => {
   const url = ctx.request.url;
   const params = {
     client_id: url.searchParams.get("client_id") || "",
@@ -53,33 +233,20 @@ router.get("/authorize", async (ctx: Context) => {
     code_challenge_method: url.searchParams.get("code_challenge_method") || undefined,
   };
 
-  console.log("📥 Authorization request:", params);
+  console.log("📥 Login form request:", params);
 
   try {
     // Let LLM validate the authorization request
     const validation = await processAuthorizationRequest(params);
 
     if (!validation.valid) {
-      // If redirect_uri is invalid, show error page
-      if (validation.error === "invalid_redirect_uri" || !params.redirect_uri) {
-        ctx.response.status = 400;
-        ctx.response.body = {
-          error: validation.error,
-          error_description: validation.error_description,
-        };
-        return;
-      }
-
-      // Redirect with error
-      const redirectUrl = new URL(params.redirect_uri);
-      redirectUrl.searchParams.set("error", validation.error || "invalid_request");
-      if (validation.error_description) {
-        redirectUrl.searchParams.set("error_description", validation.error_description);
-      }
-      if (params.state) {
-        redirectUrl.searchParams.set("state", params.state);
-      }
-      ctx.response.redirect(redirectUrl.toString());
+      // Return error as JSON for the loading page to handle
+      ctx.response.status = 400;
+      ctx.response.headers.set("Content-Type", "application/json");
+      ctx.response.body = {
+        error: validation.error || "invalid_request",
+        error_description: validation.error_description || "Authorization request validation failed",
+      };
       return;
     }
 
@@ -99,11 +266,12 @@ router.get("/authorize", async (ctx: Context) => {
     ctx.response.headers.set("Content-Type", "text/html; charset=utf-8");
     ctx.response.body = loginHtml;
   } catch (error) {
-    console.error("❌ Authorization error:", error);
+    console.error("❌ Login form generation error:", error);
     ctx.response.status = 500;
+    ctx.response.headers.set("Content-Type", "application/json");
     ctx.response.body = {
       error: "server_error",
-      error_description: "An internal error occurred",
+      error_description: "An internal error occurred while generating the login page",
     };
   }
 });
