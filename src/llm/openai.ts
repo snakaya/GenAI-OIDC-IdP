@@ -323,7 +323,7 @@ async function processToolCalls(
 
       // Check if it's a JWT tool or DB tool
       if (
-        ["generate_authorization_code", "generate_access_token", "generate_refresh_token", "create_id_token", "verify_pkce_challenge"].includes(
+        ["create_authorization_code", "verify_authorization_code", "generate_authorization_code", "generate_access_token", "generate_refresh_token", "create_id_token", "verify_pkce_challenge"].includes(
           toolCall.function.name
         )
       ) {
@@ -411,9 +411,7 @@ When handling authentication:
 1. First, validate user credentials using validate_user_credentials tool with the provided username and password
 2. If credentials are invalid (valid=false), return an error immediately
 3. If credentials are valid (valid=true), you will receive the user object with user_id
-4. Generate an authorization code using generate_authorization_code tool
-5. Save the authorization code using save_authorization_code tool with:
-   - code: the generated authorization code
+4. Create a self-contained authorization code using create_authorization_code tool with:
    - client_id: from the request
    - user_id: from the validated user object
    - redirect_uri: from the request
@@ -421,9 +419,11 @@ When handling authentication:
    - code_challenge: from the request (if provided)
    - code_challenge_method: from the request (if provided)
    - nonce: from the request (if provided)
-6. Construct the redirect URL by appending query parameters to redirect_uri:
-   - code: the authorization code
+5. Construct the redirect URL by appending query parameters to redirect_uri:
+   - code: the authorization code returned from create_authorization_code
    - state: from the request
+
+IMPORTANT: Use create_authorization_code (NOT generate_authorization_code). The code is self-contained and does NOT need to be saved to the database.
 
 If authentication fails, return JSON:
 {"success": false, "error": "invalid_credentials", "error_description": "Invalid username or password"}
@@ -437,27 +437,28 @@ IMPORTANT: Always respond with valid JSON only, no markdown or extra text.`,
 Your job is to exchange authorization codes for tokens according to OAuth 2.0 and OpenID Connect specifications.
 
 When handling a token request with grant_type=authorization_code:
-1. Get the authorization code data using get_authorization_code tool
-2. Validate the code exists and is not expired or used
-3. Validate the client_id matches
-4. Validate the redirect_uri matches
-5. If PKCE was used, verify the code_verifier using verify_pkce_challenge tool
-6. Mark the code as used using mark_authorization_code_used tool
+1. Verify the authorization code using verify_authorization_code tool with the code from the request
+2. If the code is invalid (valid=false), return an error immediately
+3. If valid, you will receive: client_id, user_id, redirect_uri, scope, code_challenge, code_challenge_method, nonce
+4. Validate the client_id from the code matches the client_id in the request
+5. Validate the redirect_uri from the code matches the redirect_uri in the request
+6. If PKCE was used (code_challenge exists), verify the code_verifier using verify_pkce_challenge tool
 7. Generate access_token using generate_access_token tool
-8. Create id_token using create_id_token tool
+8. Create id_token using create_id_token tool with sub=user_id, aud=client_id, and nonce if present
 9. Save the access token using save_access_token tool
 10. Return the token response
+
+IMPORTANT: Use verify_authorization_code (NOT get_authorization_code). The authorization code is self-contained and verified cryptographically.
 
 Token response should include:
 - access_token
 - token_type: "Bearer"
 - expires_in: 3600
 - id_token
-- scope
+- scope (from the verified code)
 
 If validation fails, return JSON error:
-- error: error code
-- error_description: description
+{"error": "<error_code>", "error_description": "<description>"}
 
 Always respond with valid JSON only.`,
 

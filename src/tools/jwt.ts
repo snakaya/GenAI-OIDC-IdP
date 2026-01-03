@@ -3,7 +3,7 @@
  * Provides cryptographic signing capabilities that LLM can use
  */
 
-import { encodeBase64Url } from "@std/encoding/base64url";
+import { encodeBase64Url, decodeBase64Url } from "@std/encoding/base64url";
 
 // JWT Secret from environment
 const getJwtSecret = (): string => {
@@ -46,10 +46,80 @@ export function generateRandomString(length: number = 32): string {
 }
 
 /**
- * Generate authorization code
+ * Generate authorization code (simple random string - for local use)
  */
 export function generateAuthorizationCode(): string {
   return generateRandomString(32);
+}
+
+/**
+ * Create a self-contained authorization code as JWT
+ * This allows the code to work across Deno Deploy instances
+ */
+export async function createAuthorizationCodeJwt(params: {
+  client_id: string;
+  user_id: string;
+  redirect_uri: string;
+  scope: string;
+  code_challenge?: string;
+  code_challenge_method?: string;
+  nonce?: string;
+  expiresIn?: number;
+}): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    type: "authorization_code",
+    client_id: params.client_id,
+    user_id: params.user_id,
+    redirect_uri: params.redirect_uri,
+    scope: params.scope,
+    code_challenge: params.code_challenge,
+    code_challenge_method: params.code_challenge_method,
+    nonce: params.nonce,
+    exp: now + (params.expiresIn || 600), // 10 minutes default
+    jti: generateRandomString(16), // unique ID to prevent replay
+  };
+  return await signJwt(payload);
+}
+
+/**
+ * Verify and decode a JWT
+ */
+export async function verifyAndDecodeJwt(token: string): Promise<Record<string, unknown> | null> {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+
+    const [headerB64, payloadB64, signatureB64] = parts;
+    
+    // Verify signature
+    const encoder = new TextEncoder();
+    const signingInput = `${headerB64}.${payloadB64}`;
+    const secret = encoder.encode(getJwtSecret());
+    const expectedSignature = await hmacSha256(secret, encoder.encode(signingInput));
+    const expectedSignatureB64 = encodeBase64Url(expectedSignature);
+    
+    if (signatureB64 !== expectedSignatureB64) {
+      console.log("JWT signature verification failed");
+      return null;
+    }
+    
+    // Decode payload
+    const decoder = new TextDecoder();
+    const payload = JSON.parse(decoder.decode(decodeBase64Url(payloadB64)));
+    
+    // Check expiration
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      console.log("JWT has expired");
+      return null;
+    }
+    
+    return payload;
+  } catch (error) {
+    console.error("JWT verification error:", error);
+    return null;
+  }
 }
 
 /**
@@ -150,12 +220,58 @@ export const jwtTools = [
   {
     type: "function" as const,
     function: {
-      name: "generate_authorization_code",
-      description: "Generate a secure authorization code for the OAuth2 authorization code flow",
+      name: "create_authorization_code",
+      description: "Create a self-contained authorization code (as JWT) that includes all necessary data. This code is cryptographically signed and can be verified without database lookup.",
       parameters: {
         type: "object",
-        properties: {},
-        required: [],
+        properties: {
+          client_id: {
+            type: "string",
+            description: "The client identifier",
+          },
+          user_id: {
+            type: "string",
+            description: "The authenticated user's identifier",
+          },
+          redirect_uri: {
+            type: "string",
+            description: "The redirect URI",
+          },
+          scope: {
+            type: "string",
+            description: "The granted scope",
+          },
+          code_challenge: {
+            type: "string",
+            description: "PKCE code challenge (optional)",
+          },
+          code_challenge_method: {
+            type: "string",
+            description: "PKCE code challenge method (optional)",
+          },
+          nonce: {
+            type: "string",
+            description: "Nonce value (optional)",
+          },
+        },
+        required: ["client_id", "user_id", "redirect_uri", "scope"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "verify_authorization_code",
+      description: "Verify and decode an authorization code. Returns the data contained in the code if valid, or null if invalid/expired.",
+      parameters: {
+        type: "object",
+        properties: {
+          code: {
+            type: "string",
+            description: "The authorization code to verify",
+          },
+        },
+        required: ["code"],
       },
     },
   },
@@ -248,6 +364,37 @@ export async function executeToolCall(
   args: Record<string, unknown>
 ): Promise<unknown> {
   switch (toolName) {
+    case "create_authorization_code": {
+      const code = await createAuthorizationCodeJwt({
+        client_id: args.client_id as string,
+        user_id: args.user_id as string,
+        redirect_uri: args.redirect_uri as string,
+        scope: args.scope as string,
+        code_challenge: args.code_challenge as string | undefined,
+        code_challenge_method: args.code_challenge_method as string | undefined,
+        nonce: args.nonce as string | undefined,
+      });
+      return { code };
+    }
+
+    case "verify_authorization_code": {
+      const payload = await verifyAndDecodeJwt(args.code as string);
+      if (!payload || payload.type !== "authorization_code") {
+        return { valid: false, error: "Invalid or expired authorization code" };
+      }
+      return {
+        valid: true,
+        client_id: payload.client_id,
+        user_id: payload.user_id,
+        redirect_uri: payload.redirect_uri,
+        scope: payload.scope,
+        code_challenge: payload.code_challenge,
+        code_challenge_method: payload.code_challenge_method,
+        nonce: payload.nonce,
+      };
+    }
+
+    // Keep old function for backward compatibility
     case "generate_authorization_code":
       return { code: generateAuthorizationCode() };
 
