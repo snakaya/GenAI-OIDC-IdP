@@ -6,6 +6,7 @@
 import OpenAI from "openai";
 import { jwtTools, executeToolCall } from "../tools/jwt.ts";
 import { db } from "../db/memory.ts";
+import { SYSTEM_PROMPTS, type OperationType } from "./prompts/index.ts";
 
 const getOpenAIClient = (): OpenAI => {
   return new OpenAI({
@@ -311,6 +312,37 @@ function executeDbToolCall(
 const allTools = [...jwtTools, ...dbTools];
 
 /**
+ * Tools grouped by endpoint/operation
+ * Each endpoint only receives the tools it needs
+ */
+const toolsByOperation: Record<OperationType, typeof allTools> = {
+  // Authorization: needs client lookup only
+  authorization: dbTools.filter(t => t.function.name === "get_client"),
+  
+  // Login page: no tools needed (just generates HTML)
+  login_page: [],
+  
+  // Authenticate: needs user validation and authorization code creation
+  authenticate: [
+    ...dbTools.filter(t => t.function.name === "validate_user_credentials"),
+    ...jwtTools.filter(t => t.function.name === "create_authorization_code"),
+  ],
+  
+  // Token: needs code verification, PKCE verification, token generation, and token storage
+  token: [
+    ...jwtTools.filter(t => 
+      ["verify_authorization_code", "verify_pkce_challenge", "generate_access_token", "create_id_token"].includes(t.function.name)
+    ),
+    ...dbTools.filter(t => t.function.name === "save_access_token"),
+  ],
+  
+  // Userinfo: needs token lookup and user lookup
+  userinfo: dbTools.filter(t => 
+    ["get_access_token", "get_user"].includes(t.function.name)
+  ),
+};
+
+/**
  * Process tool calls from OpenAI response
  */
 async function processToolCalls(
@@ -344,145 +376,62 @@ async function processToolCalls(
 }
 
 /**
- * System prompts for different OIDC operations
+ * Retry configuration
  */
-const SYSTEM_PROMPTS = {
-  authorization: `You are an OIDC Identity Provider authorization handler.
-Your job is to process authorization requests according to OAuth 2.0 and OpenID Connect specifications.
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
 
-When handling an authorization request:
-1. First, call get_client tool with the provided client_id
-2. If the client is not found (found=false), return error "unauthorized_client"
-3. If the client is found, check if the provided redirect_uri is in the client's redirect_uris array
-   - The redirect_uri must EXACTLY match one of the URIs in the redirect_uris array
-   - If it matches ANY URI in the array, the redirect_uri is valid
-4. Validate the response_type is "code"
-5. Validate the scope contains "openid"
-6. If PKCE parameters (code_challenge) are present, that's fine - just validate they exist
+/**
+ * Sleep helper for retry delays
+ */
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-IMPORTANT: When checking redirect_uri, compare the EXACT string from the request against EACH URI in the client's redirect_uris array. If ANY match, it's valid.
+/**
+ * Check if error is retryable (network/connection errors)
+ */
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("connection") ||
+      message.includes("dns") ||
+      message.includes("network") ||
+      message.includes("timeout") ||
+      message.includes("econnrefused") ||
+      message.includes("enotfound")
+    );
+  }
+  return false;
+}
 
-If validation fails, return JSON:
-{"valid": false, "error": "<error_code>", "error_description": "<description>"}
-
-If validation succeeds, return JSON:
-{"valid": true, "client_name": "<client_name from client object>", "requested_scope": "<scope>"}
-
-Always respond with valid JSON only, no markdown or extra text.`,
-
-  login_page: `You are an OIDC Identity Provider login page generator.
-Generate a beautiful, modern login HTML page with the following requirements:
-
-1. Clean, professional design with a modern aesthetic
-2. Form with username and password fields
-3. Submit button that shows loading state when clicked
-4. Display the client application name that's requesting access
-5. Show the requested permissions/scopes
-6. Include proper CSRF protection (include a hidden field with the provided state)
-7. Use inline CSS for styling (no external stylesheets)
-8. The form should POST to /authorize/callback
-9. Include hidden fields for: client_id, redirect_uri, scope, state, nonce, code_challenge, code_challenge_method, response_type
-10. Add JavaScript to handle form submission:
-    - When form is submitted, show a loading overlay with message "🤖 AI is processing your login..."
-    - Disable the submit button and show a spinner
-    - The overlay should cover the entire page with a semi-transparent background
-    - Include animated dots or spinner in the loading message
-
-Make the page visually appealing with:
-- Modern color scheme (prefer dark theme with cyan/purple accents)
-- Subtle gradients or shadows
-- Proper typography
-- Responsive design
-- Good UX practices
-- Smooth animations for the loading state
-
-The loading overlay should include:
-- A robot emoji (🤖) or similar AI indicator
-- Text like "AI is authenticating..." or "Processing your login..."
-- An animated spinner or bouncing dots
-- Semi-transparent dark background
-
-Return ONLY the HTML content, no markdown code blocks.`,
-
-  authenticate: `You are an OIDC Identity Provider authentication handler.
-Your job is to authenticate users and generate authorization codes.
-
-When handling authentication:
-1. First, validate user credentials using validate_user_credentials tool with the provided username and password
-2. If credentials are invalid (valid=false), return an error immediately
-3. If credentials are valid (valid=true), you will receive the user object with user_id
-4. Create a self-contained authorization code using create_authorization_code tool with:
-   - client_id: from the request
-   - user_id: from the validated user object
-   - redirect_uri: from the request
-   - scope: from the request
-   - code_challenge: from the request (if provided)
-   - code_challenge_method: from the request (if provided)
-   - nonce: from the request (if provided)
-5. Construct the redirect URL by appending query parameters to redirect_uri:
-   - code: the authorization code returned from create_authorization_code
-   - state: from the request
-
-IMPORTANT: Use create_authorization_code (NOT generate_authorization_code). The code is self-contained and does NOT need to be saved to the database.
-
-If authentication fails, return JSON:
-{"success": false, "error": "invalid_credentials", "error_description": "Invalid username or password"}
-
-If authentication succeeds, return JSON:
-{"success": true, "redirect_url": "<redirect_uri>?code=<authorization_code>&state=<state>"}
-
-IMPORTANT: Always respond with valid JSON only, no markdown or extra text.`,
-
-  token: `You are an OIDC Identity Provider token endpoint handler.
-Your job is to exchange authorization codes for tokens according to OAuth 2.0 and OpenID Connect specifications.
-
-When handling a token request with grant_type=authorization_code:
-1. Verify the authorization code using verify_authorization_code tool with the code from the request
-2. If the code is invalid (valid=false), return an error immediately
-3. If valid, you will receive: client_id, user_id, redirect_uri, scope, code_challenge, code_challenge_method, nonce
-4. Validate the client_id from the code matches the client_id in the request
-5. Validate the redirect_uri from the code matches the redirect_uri in the request
-6. If PKCE was used (code_challenge exists), verify the code_verifier using verify_pkce_challenge tool
-7. Generate access_token using generate_access_token tool
-8. Create id_token using create_id_token tool with sub=user_id, aud=client_id, and nonce if present
-9. Save the access token using save_access_token tool
-10. Return the token response
-
-IMPORTANT: Use verify_authorization_code (NOT get_authorization_code). The authorization code is self-contained and verified cryptographically.
-
-Token response should include:
-- access_token
-- token_type: "Bearer"
-- expires_in: 3600
-- id_token
-- scope (from the verified code)
-
-If validation fails, return JSON error:
-{"error": "<error_code>", "error_description": "<description>"}
-
-Always respond with valid JSON only.`,
-
-  userinfo: `You are an OIDC Identity Provider userinfo endpoint handler.
-Your job is to return user claims based on the access token and granted scopes.
-
-When handling a userinfo request:
-1. Get the access token data using get_access_token tool
-2. Validate the token exists and is not expired
-3. Get user information using get_user tool
-4. Return claims based on the granted scope:
-   - openid: sub (always included)
-   - profile: name, given_name, family_name
-   - email: email
-
-If token is invalid or expired, return JSON error:
-- error: "invalid_token"
-- error_description: description
-
-Otherwise return the user claims as JSON.
-Always respond with valid JSON only.`,
-};
-
-export type OperationType = keyof typeof SYSTEM_PROMPTS;
+/**
+ * Call OpenAI with retry logic
+ */
+async function callOpenAIWithRetry(
+  openai: OpenAI,
+  params: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+  operation: string
+): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+  let lastError: unknown;
+  
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await openai.chat.completions.create(params);
+    } catch (error) {
+      lastError = error;
+      
+      if (isRetryableError(error) && attempt < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * attempt; // Exponential backoff
+        console.log(`⚠️ [${operation}] Connection error, retrying in ${delay}ms (attempt ${attempt}/${MAX_RETRIES})...`);
+        await sleep(delay);
+      } else {
+        throw error;
+      }
+    }
+  }
+  
+  throw lastError;
+}
 
 /**
  * Call OpenAI with tools and handle tool calls
@@ -493,7 +442,13 @@ export async function callLLM(
 ): Promise<string> {
   const openai = getOpenAIClient();
 
+  // Get operation-specific tools
+  const operationTools = toolsByOperation[operation];
+  const hasTools = operationTools.length > 0;
+
   console.log(`🤖 [${operation}] Calling LLM...`);
+  console.log(`🤖 [${operation}] System prompt: ${SYSTEM_PROMPTS[operation].slice(0, 100)}...`);
+  console.log(`🤖 [${operation}] Available tools: ${hasTools ? operationTools.map(t => t.function.name).join(", ") : "(none)"}`);
   console.log(`🤖 [${operation}] User message:`, userMessage.slice(0, 200) + "...");
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -501,21 +456,27 @@ export async function callLLM(
     { role: "user", content: userMessage },
   ];
 
-  let response = await openai.chat.completions.create({
+  // Only include tools if the operation has any
+  const requestParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
     model: MODEL,
     messages,
-    tools: allTools,
-    tool_choice: "auto",
-  });
+  };
 
-  // Handle tool calls in a loop
-  while (response.choices[0].message.tool_calls) {
+  if (hasTools) {
+    requestParams.tools = operationTools;
+    requestParams.tool_choice = "auto";
+  }
+
+  let response = await callOpenAIWithRetry(openai, requestParams, operation);
+
+  // Handle tool calls in a loop (only if tools are available)
+  while (hasTools && response.choices[0].message.tool_calls) {
     const assistantMessage = response.choices[0].message;
     messages.push(assistantMessage);
 
     console.log(`🔧 [${operation}] Tool calls:`, assistantMessage.tool_calls?.map((tc: { function: { name: string } }) => tc.function.name));
 
-    const toolResults = await processToolCalls(assistantMessage.tool_calls);
+    const toolResults = await processToolCalls(assistantMessage.tool_calls!);
     
     // Log tool results for debugging
     for (const result of toolResults) {
@@ -524,12 +485,12 @@ export async function callLLM(
     
     messages.push(...toolResults);
 
-    response = await openai.chat.completions.create({
+    response = await callOpenAIWithRetry(openai, {
       model: MODEL,
       messages,
-      tools: allTools,
+      tools: operationTools,
       tool_choice: "auto",
-    });
+    }, operation);
   }
   
   const finalResponse = response.choices[0].message.content || "";
