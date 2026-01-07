@@ -434,17 +434,28 @@ async function callOpenAIWithRetry(
 }
 
 /**
+ * Result of LLM call including tool results
+ */
+export interface LLMCallResult {
+  response: string;
+  toolResults: Record<string, unknown>;
+}
+
+/**
  * Call OpenAI with tools and handle tool calls
  */
 export async function callLLM(
   operation: OperationType,
   userMessage: string
-): Promise<string> {
+): Promise<LLMCallResult> {
   const openai = getOpenAIClient();
 
   // Get operation-specific tools
   const operationTools = toolsByOperation[operation];
   const hasTools = operationTools.length > 0;
+
+  // Store tool results for later use
+  const collectedToolResults: Record<string, unknown> = {};
 
   console.log(`🤖 [${operation}] Calling LLM...`);
   console.log(`🤖 [${operation}] System prompt: ${SYSTEM_PROMPTS[operation].slice(0, 100)}...`);
@@ -474,13 +485,23 @@ export async function callLLM(
     const assistantMessage = response.choices[0].message;
     messages.push(assistantMessage);
 
-    console.log(`🔧 [${operation}] Tool calls:`, assistantMessage.tool_calls?.map((tc: { function: { name: string } }) => tc.function.name));
+    const toolCallNames = assistantMessage.tool_calls?.map((tc: { function: { name: string } }) => tc.function.name) || [];
+    console.log(`🔧 [${operation}] Tool calls:`, toolCallNames);
 
     const toolResults = await processToolCalls(assistantMessage.tool_calls!);
     
-    // Log tool results for debugging
-    for (const result of toolResults) {
+    // Log tool results and collect them for later use
+    for (let i = 0; i < toolResults.length; i++) {
+      const result = toolResults[i];
+      const toolName = toolCallNames[i];
       console.log(`🔧 [${operation}] Tool result:`, result.content.slice(0, 300));
+      
+      // Store tool result by tool name
+      try {
+        collectedToolResults[toolName] = JSON.parse(result.content);
+      } catch {
+        collectedToolResults[toolName] = result.content;
+      }
     }
     
     messages.push(...toolResults);
@@ -496,7 +517,10 @@ export async function callLLM(
   const finalResponse = response.choices[0].message.content || "";
   console.log(`🤖 [${operation}] LLM response:`, finalResponse.slice(0, 500));
 
-  return finalResponse;
+  return {
+    response: finalResponse,
+    toolResults: collectedToolResults,
+  };
 }
 
 /**
@@ -528,7 +552,8 @@ ${params.error ? `- Error to display: ${params.error}` : ""}
 
 Remember to include all these as hidden form fields.`;
 
-  return await callLLM("login_page", prompt);
+  const result = await callLLM("login_page", prompt);
+  return result.response;
 }
 
 /**
@@ -555,7 +580,7 @@ export async function processAuthorizationRequest(params: {
 - code_challenge_method: ${params.code_challenge_method || ""}`;
 
   const result = await callLLM("authorization", prompt);
-  return JSON.parse(result);
+  return JSON.parse(result.response);
 }
 
 /**
@@ -584,7 +609,41 @@ export async function processAuthentication(params: {
 - code_challenge_method: ${params.code_challenge_method || ""}`;
 
   const result = await callLLM("authenticate", prompt);
-  return JSON.parse(result);
+  
+  // Parse LLM response
+  let llmResult: { success: boolean; code_created?: boolean; error?: string; error_description?: string };
+  try {
+    llmResult = JSON.parse(result.response);
+  } catch {
+    console.error("Failed to parse LLM response:", result.response);
+    return { success: false, error: "server_error", error_description: "Failed to parse authentication response" };
+  }
+  
+  // If authentication failed, return the error
+  if (!llmResult.success) {
+    return {
+      success: false,
+      error: llmResult.error || "invalid_credentials",
+      error_description: llmResult.error_description || "Authentication failed",
+    };
+  }
+  
+  // Get authorization code from tool results
+  const codeResult = result.toolResults["create_authorization_code"] as { code?: string } | undefined;
+  if (!codeResult?.code) {
+    console.error("Authorization code not found in tool results:", result.toolResults);
+    return { success: false, error: "server_error", error_description: "Failed to generate authorization code" };
+  }
+  
+  // Build redirect URL with code and state
+  const redirectUrl = new URL(params.redirect_uri);
+  redirectUrl.searchParams.set("code", codeResult.code);
+  redirectUrl.searchParams.set("state", params.state);
+  
+  return {
+    success: true,
+    redirect_url: redirectUrl.toString(),
+  };
 }
 
 /**
@@ -607,7 +666,7 @@ export async function processTokenExchange(params: {
 - code_verifier: ${params.code_verifier || ""}`;
 
   const result = await callLLM("token", prompt);
-  return JSON.parse(result);
+  return JSON.parse(result.response);
 }
 
 /**
@@ -617,5 +676,5 @@ export async function processUserinfo(accessToken: string): Promise<Record<strin
   const prompt = `Get user information for access token: ${accessToken}`;
 
   const result = await callLLM("userinfo", prompt);
-  return JSON.parse(result);
+  return JSON.parse(result.response);
 }

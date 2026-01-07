@@ -18,16 +18,16 @@ When handling authentication:
    - code_challenge: from the request (if provided)
    - code_challenge_method: from the request (if provided)
    - nonce: from the request (if provided)
-5. Construct the redirect URL by appending query parameters to redirect_uri:
-   - code: the authorization code returned from create_authorization_code
-   - state: from the request
+5. Return the result indicating success and that the code was created
 
 IMPORTANT: Use create_authorization_code (NOT generate_authorization_code). The code is self-contained and does NOT need to be saved to the database.
 
 If authentication fails, return JSON:
 {"success": false, "error": "invalid_credentials", "error_description": "Invalid username or password"}
 
-If authentication succeeds, return JSON:
-{"success": true, "redirect_url": "<redirect_uri>?code=<authorization_code>&state=<state>"}
+If authentication succeeds, return JSON (DO NOT include the actual code value, just confirm success):
+{"success": true, "code_created": true}
 
-IMPORTANT: Always respond with valid JSON only, no markdown or extra text.`;
+The redirect URL will be constructed by the system using the code from the tool result.
+
+IMPORTANT: Always respond with valid JSON only, no markdown or extra text. Keep the response SHORT.`;
