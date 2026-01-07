@@ -24,6 +24,14 @@ console.log("   DENO_DEPLOYMENT_ID:", Deno.env.get("DENO_DEPLOYMENT_ID") || "(no
 console.log("   ISSUER:", ISSUER || "(auto-detect)");
 console.log("   ADDITIONAL_REDIRECT_URIS:", Deno.env.get("ADDITIONAL_REDIRECT_URIS") || "(not set)");
 
+// Check JWT_SECRET is set (important for Deno Deploy)
+const jwtSecret = Deno.env.get("JWT_SECRET");
+if (jwtSecret) {
+  console.log("   JWT_SECRET: ✅ Set (length:", jwtSecret.length, ")");
+} else {
+  console.log("   JWT_SECRET: ⚠️ NOT SET - using default (NOT SECURE for production!)");
+}
+
 // Log registered clients
 const testClient = db.getClient("test-client-1");
 if (testClient) {

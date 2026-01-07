@@ -87,8 +87,13 @@ export async function createAuthorizationCodeJwt(params: {
  */
 export async function verifyAndDecodeJwt(token: string): Promise<Record<string, unknown> | null> {
   try {
+    console.log("🔐 Verifying JWT, token length:", token.length);
+    
     const parts = token.split(".");
-    if (parts.length !== 3) return null;
+    if (parts.length !== 3) {
+      console.log("❌ JWT has invalid structure, expected 3 parts, got:", parts.length);
+      return null;
+    }
 
     const [headerB64, payloadB64, signatureB64] = parts;
     
@@ -99,8 +104,13 @@ export async function verifyAndDecodeJwt(token: string): Promise<Record<string, 
     const expectedSignature = await hmacSha256(secret, encoder.encode(signingInput));
     const expectedSignatureB64 = encodeBase64Url(expectedSignature);
     
+    console.log("🔐 JWT_SECRET length:", getJwtSecret().length);
+    console.log("🔐 Expected signature:", expectedSignatureB64.slice(0, 20) + "...");
+    console.log("🔐 Received signature:", signatureB64.slice(0, 20) + "...");
+    
     if (signatureB64 !== expectedSignatureB64) {
-      console.log("JWT signature verification failed");
+      console.log("❌ JWT signature verification failed - signatures don't match");
+      console.log("❌ This usually means JWT_SECRET is different between instances");
       return null;
     }
     
@@ -108,16 +118,20 @@ export async function verifyAndDecodeJwt(token: string): Promise<Record<string, 
     const decoder = new TextDecoder();
     const payload = JSON.parse(decoder.decode(decodeBase64Url(payloadB64)));
     
+    console.log("🔐 JWT payload type:", payload.type);
+    console.log("🔐 JWT issuer:", payload.iss);
+    
     // Check expiration
     const now = Math.floor(Date.now() / 1000);
     if (payload.exp && payload.exp < now) {
-      console.log("JWT has expired");
+      console.log("❌ JWT has expired. exp:", payload.exp, "now:", now);
       return null;
     }
     
+    console.log("✅ JWT verification successful");
     return payload;
   } catch (error) {
-    console.error("JWT verification error:", error);
+    console.error("❌ JWT verification error:", error);
     return null;
   }
 }
@@ -378,10 +392,17 @@ export async function executeToolCall(
     }
 
     case "verify_authorization_code": {
+      console.log("🔐 verify_authorization_code called with code length:", (args.code as string).length);
       const payload = await verifyAndDecodeJwt(args.code as string);
-      if (!payload || payload.type !== "authorization_code") {
+      if (!payload) {
+        console.log("❌ JWT verification returned null");
         return { valid: false, error: "Invalid or expired authorization code" };
       }
+      if (payload.type !== "authorization_code") {
+        console.log("❌ JWT type mismatch. Expected 'authorization_code', got:", payload.type);
+        return { valid: false, error: "Invalid or expired authorization code" };
+      }
+      console.log("✅ Authorization code verified successfully for user:", payload.user_id);
       return {
         valid: true,
         client_id: payload.client_id,
