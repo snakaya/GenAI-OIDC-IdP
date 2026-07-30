@@ -27,9 +27,11 @@ jobs:
           # test-client.ts entrypoint comes from deno.client.json's deploy block
           # (deno deploy reads the entrypoint from the config, not a CLI flag).
           DENO_DEPLOY_CONFIG: deno.client.json
-          # Drive the app/org/entrypoint ENTIRELY from deno.client.json via
-          # `deno deploy --prod --config ...` (no explicit --org/--app, which on
-          # an existing app made deno reuse its stored entrypoint = main.ts and
-          # ignore the config). CONFIG_ONLY forces the config to win.
-          DENO_DEPLOY_CONFIG_ONLY: "1"
+          # A Deno Deploy app's entrypoint is fixed at CREATE time and never
+          # changes on later --prod updates. The app must therefore be CREATED
+          # from deno.client.json (entrypoint test-client.ts). So use the default
+          # create-or-prod path (no CONFIG_ONLY / EXISTING): on a fresh app it
+          # runs `deno deploy create ... --config deno.client.json`, which reads
+          # the entrypoint from the config and prints it in the build-config
+          # table for verification.
         run: bash "$GITHUB_WORKSPACE/.github/scripts/deno-deploy.sh"
