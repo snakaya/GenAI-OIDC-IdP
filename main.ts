@@ -16,7 +16,7 @@ import { db } from "./src/db/memory.ts";
 const PORT = parseInt(Deno.env.get("PORT") || "9052");
 const ISSUER = Deno.env.get("ISSUER") || (isDenoDeploy ? "" : `http://localhost:${PORT}`);
 const TEST_CLIENT_URL = Deno.env.get("TEST_CLIENT_URL") || (isDenoDeploy ? "" : "http://localhost:3000");
-const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-5-mini";
+const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-5.6-luna";
 
 // Log environment info on startup
 console.log("🔧 Environment:");

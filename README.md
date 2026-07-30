@@ -7,7 +7,7 @@
 This project takes an experimental approach where the main processing of an OIDC (OpenID Connect) Identity Provider is delegated to OpenAI's LLM via Function Calling.
 
 - **Framework**: Oak (Deno)
-- **LLM**: OpenAI (configurable, default: gpt-5-mini)
+- **LLM**: OpenAI (configurable, default: gpt-5.6-luna)
 - **Authentication**: Username/Password
 - **PKCE**: Supported (S256 and plain)
 - **Deployment**: Local development & Deno Deploy
