@@ -1,0 +1,27 @@
+name: Deploy IdP (manual)
+
+# Manual only — never on push. Triggered on demand (from the Actions tab or via
+# the GitHub API). Runs on a GitHub runner, which can reach the current Deno
+# Deploy (console.deno.com). Auth comes from the DENO_DEPLOY_TOKEN repository
+# secret; the app's runtime env (OPENAI_API_KEY, JWT_SECRET, optional ISSUER,
+# ...) is set once on the Deno Deploy app itself, NOT here.
+#
+# First run bootstraps the app via `deno deploy create`; later runs prod-deploy.
+# Deploys the IdP (main.ts) per deno.json's `deploy` block (org=loosedays,
+# app=genai-oidc-idp).
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Deploy to Deno Deploy (with retry)
+        env:
+          DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
+          DENO_DEPLOY_APP: genai-oidc-idp
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/deno-deploy.sh"
