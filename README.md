@@ -254,34 +254,46 @@ GenAI-OIDC-IdP/
 
 ## Deploying to Deno Deploy
 
+> **Note:** This project targets the current Deno Deploy (`console.deno.com`),
+> which uses the built-in `deno deploy` command — not the legacy `deployctl` /
+> `dash.deno.com`. The `deploy` block in `deno.json` (`org` / `app` /
+> `entrypoint`) drives it; adjust `org` and `app` to match your own
+> organization and application.
+
 ### IdP Deployment
 
-1. **Create a project** at [dash.deno.com](https://dash.deno.com)
+1. **Create an app** at [console.deno.com](https://console.deno.com) under your
+   organization (this repo's `deno.json` defaults to `org: loosedays`,
+   `app: genai-oidc-idp` — change these to your own).
 
-2. **Set environment variables**:
+2. **Set environment variables** (in the app's Settings → Environment Variables):
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `OPENAI_API_KEY` | ✅ | Your OpenAI API key |
 | `OPENAI_MODEL` | ❌ | LLM model (default: `gpt-5-mini`) |
 | `JWT_SECRET` | ✅ | Secret key for JWT signing |
-| `ISSUER` | ❌ | Your deploy URL (auto-detected) |
+| `ISSUER` | ➖ | Your deploy URL, e.g. `https://<app>.deno.dev`. Auto-detected per-request from the Host header if unset, but setting it explicitly is recommended so the OIDC discovery document and the top page always show the canonical issuer. |
 | `ADDITIONAL_REDIRECT_URIS` | ❌ | Comma-separated redirect URIs |
 | `TEST_CLIENT_URL` | ❌ | Test client URL (shown on top page) |
 
-3. **Deploy**:
+3. **Deploy** with the built-in Deno CLI (no build step — plain Deno app):
 
 ```bash
-# Via CLI
-deno install -Arf jsr:@deno/deployctl
-deployctl deploy --project=your-idp-project main.ts
+# One-time browser auth against console.deno.com
+deno deploy            # reads the "deploy" block in deno.json (entrypoint: main.ts)
 
-# Or link GitHub repo in dashboard (Entry point: main.ts)
+# Or connect the GitHub repo in the console (Entry point: main.ts)
 ```
 
 ### Client Deployment
 
-1. **Create another project** at [dash.deno.com](https://dash.deno.com)
+The test client (`test-client.ts`) is a **separate** app. Because `deno.json`'s
+`deploy` block points at the IdP (`main.ts`), deploy the client as its own app
+with an explicit entrypoint.
+
+1. **Create another app** at [console.deno.com](https://console.deno.com) (e.g.
+   `app: genai-oidc-client`)
 
 2. **Set environment variables**:
 
@@ -292,10 +304,10 @@ deployctl deploy --project=your-idp-project main.ts
 | `CLIENT_SECRET` | ❌ | Client secret (default: `test-secret-1`) |
 | `SESSION_SECRET` | ❌ | Cookie signing secret |
 
-3. **Deploy**:
+3. **Deploy** (override the entrypoint and app for the client):
 
 ```bash
-deployctl deploy --project=your-client-project test-client.ts
+deno deploy --entrypoint=test-client.ts --app=genai-oidc-client
 ```
 
 4. **Update IdP redirect URIs**:
