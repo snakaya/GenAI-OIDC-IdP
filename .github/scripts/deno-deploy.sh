@@ -28,30 +28,33 @@ ATTEMPTS="${DENO_DEPLOY_ATTEMPTS:-3}"
 
 echo "DENO_DEPLOY_TOKEN present (length ${#DENO_DEPLOY_TOKEN}). Deploying '${DENO_DEPLOY_APP}' (org ${ORG}, region ${REGION})."
 
-# Optional entrypoint override (e.g. deploy test-client.ts instead of the
-# deno.json default main.ts). Empty => rely on deno.json's deploy.entrypoint.
-EP_ARGS=()
-if [ -n "${DENO_DEPLOY_ENTRYPOINT:-}" ]; then
-  EP_ARGS=(--entrypoint "$DENO_DEPLOY_ENTRYPOINT")
-  echo "Overriding entrypoint: ${DENO_DEPLOY_ENTRYPOINT}"
+# Optional alternate deno config file (e.g. deploy the test client from
+# deno.client.json, whose deploy.entrypoint is test-client.ts). The new
+# `deno deploy` reads the entrypoint from the deno config, NOT a CLI flag, so
+# pointing at a different config is how we ship a second app from one repo.
+# Empty => use the default deno.json.
+CFG_ARGS=()
+if [ -n "${DENO_DEPLOY_CONFIG:-}" ]; then
+  CFG_ARGS=(--config "$DENO_DEPLOY_CONFIG")
+  echo "Using deno config: ${DENO_DEPLOY_CONFIG}"
 fi
 
 deploy_once() {
   if [ "${DENO_DEPLOY_CONFIG_ONLY:-0}" = "1" ]; then
-    deno deploy --prod "${EP_ARGS[@]}"
+    deno deploy --prod "${CFG_ARGS[@]}"
     return
   fi
 
   if [ "${DENO_DEPLOY_EXISTING:-0}" = "1" ]; then
-    deno deploy --org "$ORG" --app "$DENO_DEPLOY_APP" --prod "${EP_ARGS[@]}"
+    deno deploy --org "$ORG" --app "$DENO_DEPLOY_APP" --prod "${CFG_ARGS[@]}"
     return
   fi
 
   # `create` bootstraps a brand-new app; on an app that already exists it fails
   # fast and we fall back to a normal prod deploy. Either path ships the current
   # directory, so this is safe for both first-time and repeat deploys.
-  deno deploy create --org "$ORG" --app "$DENO_DEPLOY_APP" --source local --region "$REGION" "${EP_ARGS[@]}" \
-    || deno deploy --org "$ORG" --app "$DENO_DEPLOY_APP" --prod "${EP_ARGS[@]}"
+  deno deploy create --org "$ORG" --app "$DENO_DEPLOY_APP" --source local --region "$REGION" "${CFG_ARGS[@]}" \
+    || deno deploy --org "$ORG" --app "$DENO_DEPLOY_APP" --prod "${CFG_ARGS[@]}"
 }
 
 n=1

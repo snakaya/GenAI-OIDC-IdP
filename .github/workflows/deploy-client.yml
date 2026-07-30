@@ -24,5 +24,9 @@ jobs:
         env:
           DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
           DENO_DEPLOY_APP: genai-oidc-client
-          DENO_DEPLOY_ENTRYPOINT: test-client.ts
+          # test-client.ts entrypoint comes from deno.client.json's deploy block
+          # (deno deploy reads the entrypoint from the config, not a CLI flag).
+          DENO_DEPLOY_CONFIG: deno.client.json
+          # The app slug already exists, so skip `create` and prod-deploy it.
+          DENO_DEPLOY_EXISTING: "1"
         run: bash "$GITHUB_WORKSPACE/.github/scripts/deno-deploy.sh"
