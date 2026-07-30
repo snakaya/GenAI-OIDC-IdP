@@ -1,0 +1,28 @@
+name: Deploy Test Client (manual)
+
+# Manual only — never on push. Deploys the OIDC test client (test-client.ts) as a
+# SEPARATE Deno Deploy app 'genai-oidc-client' (org loosedays), distinct from the
+# IdP (main.ts / app genai-oidc-idp). Runs on a GitHub runner via the
+# DENO_DEPLOY_TOKEN repo secret. The client's runtime env (IDP_URL, ...) is set
+# once on the Deno Deploy app itself, NOT here.
+#
+# After the first deploy, the client's callback
+# (https://genai-oidc-client.loosedays.deno.net/callback) must be added to the
+# IdP app's ADDITIONAL_REDIRECT_URIS, and the IdP redeployed, for the full flow.
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Deploy client to Deno Deploy (with retry)
+        env:
+          DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
+          DENO_DEPLOY_APP: genai-oidc-client
+          DENO_DEPLOY_ENTRYPOINT: test-client.ts
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/deno-deploy.sh"

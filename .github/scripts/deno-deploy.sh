@@ -28,22 +28,30 @@ ATTEMPTS="${DENO_DEPLOY_ATTEMPTS:-3}"
 
 echo "DENO_DEPLOY_TOKEN present (length ${#DENO_DEPLOY_TOKEN}). Deploying '${DENO_DEPLOY_APP}' (org ${ORG}, region ${REGION})."
 
+# Optional entrypoint override (e.g. deploy test-client.ts instead of the
+# deno.json default main.ts). Empty => rely on deno.json's deploy.entrypoint.
+EP_ARGS=()
+if [ -n "${DENO_DEPLOY_ENTRYPOINT:-}" ]; then
+  EP_ARGS=(--entrypoint "$DENO_DEPLOY_ENTRYPOINT")
+  echo "Overriding entrypoint: ${DENO_DEPLOY_ENTRYPOINT}"
+fi
+
 deploy_once() {
   if [ "${DENO_DEPLOY_CONFIG_ONLY:-0}" = "1" ]; then
-    deno deploy --prod
+    deno deploy --prod "${EP_ARGS[@]}"
     return
   fi
 
   if [ "${DENO_DEPLOY_EXISTING:-0}" = "1" ]; then
-    deno deploy --org "$ORG" --app "$DENO_DEPLOY_APP" --prod
+    deno deploy --org "$ORG" --app "$DENO_DEPLOY_APP" --prod "${EP_ARGS[@]}"
     return
   fi
 
   # `create` bootstraps a brand-new app; on an app that already exists it fails
   # fast and we fall back to a normal prod deploy. Either path ships the current
   # directory, so this is safe for both first-time and repeat deploys.
-  deno deploy create --org "$ORG" --app "$DENO_DEPLOY_APP" --source local --region "$REGION" \
-    || deno deploy --org "$ORG" --app "$DENO_DEPLOY_APP" --prod
+  deno deploy create --org "$ORG" --app "$DENO_DEPLOY_APP" --source local --region "$REGION" "${EP_ARGS[@]}" \
+    || deno deploy --org "$ORG" --app "$DENO_DEPLOY_APP" --prod "${EP_ARGS[@]}"
 }
 
 n=1
