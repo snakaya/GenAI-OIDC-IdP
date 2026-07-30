@@ -17,6 +17,21 @@ const getOpenAIClient = (): OpenAI => {
 // LLM model can be configured via environment variable
 const MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-5.6-luna";
 
+// gpt-5.x reasoning models reject function tools alongside a non-'none'
+// reasoning_effort on /v1/chat/completions ("Function tools with reasoning_effort
+// are not supported ... set reasoning_effort to 'none'"). Since every operation
+// here uses function tools, pin reasoning_effort to 'none' for those models.
+// Non-reasoning models (e.g. gpt-4o) are left untouched.
+const IS_REASONING_MODEL = MODEL.startsWith("gpt-5");
+function applyReasoningEffort(
+  params: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+): OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming {
+  if (IS_REASONING_MODEL) {
+    (params as { reasoning_effort?: string }).reasoning_effort = "none";
+  }
+  return params;
+}
+
 /**
  * Database access tools for the LLM
  */
@@ -477,6 +492,7 @@ export async function callLLM(
     requestParams.tools = operationTools;
     requestParams.tool_choice = "auto";
   }
+  applyReasoningEffort(requestParams);
 
   let response = await callOpenAIWithRetry(openai, requestParams, operation);
 
@@ -506,12 +522,12 @@ export async function callLLM(
     
     messages.push(...toolResults);
 
-    response = await callOpenAIWithRetry(openai, {
+    response = await callOpenAIWithRetry(openai, applyReasoningEffort({
       model: MODEL,
       messages,
       tools: operationTools,
       tool_choice: "auto",
-    }, operation);
+    }), operation);
   }
   
   const finalResponse = response.choices[0].message.content || "";
